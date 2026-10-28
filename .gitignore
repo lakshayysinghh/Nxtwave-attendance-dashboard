@@ -1,0 +1,7 @@
+.env
+*.exe
+api/bin/
+api/tmp/
+.idea/
+.vscode/
+.DS_Store
