@@ -71,25 +71,46 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/health", s.handleHealth)
 
 		r.Route("/auth", func(r chi.Router) {
-			r.Get("/google/login", s.handleGoogleLogin)
-			r.Get("/google/callback", s.handleGoogleCallback)
+			// Google sign-in is optional and off unless GOOGLE_CLIENT_ID/SECRET are set.
+			if s.google != nil {
+				r.Get("/google/login", s.handleGoogleLogin)
+				r.Get("/google/callback", s.handleGoogleCallback)
+			}
+			r.With(RateLimitByIP(10, time.Minute)).Post("/login", s.handleLogin)
 			r.Post("/logout", s.handleLogout)
 			if s.devLogin {
 				r.Post("/dev-login", s.handleDevLogin)
 			}
 			r.With(s.requireAdmin).Get("/me", s.handleMe)
+			r.With(RateLimitByIP(10, time.Minute), s.requireAdmin).Post("/password", s.handleChangePassword)
 		})
 
 		r.Get("/public/students/{niat_id}", s.handlePublicProfile)
 		r.Get("/public/students/{niat_id}/month", s.handlePublicMonth)
 
 		r.Route("/admin", func(r chi.Router) {
-			r.Use(s.requireAdmin)
+			r.Use(s.requireAdmin, s.requirePasswordChanged)
 			r.Get("/students", s.handleAdminStudents)
 			r.Get("/attendance/sheet", s.handleAdminSheet)
 			r.Put("/attendance", s.handleSaveAttendance)
 			r.Post("/imports/students", s.handleImportStudents)
 			r.Post("/imports/attendance", s.handleImportAttendance)
+			r.Post("/imports/calendar", s.handleImportCalendar)
+			r.Get("/terms", s.handleListTerms)
+			r.Post("/terms", s.handleCreateTerm)
+			r.Patch("/terms/{id}", s.handleUpdateTerm)
+			r.Delete("/terms/{id}", s.handleDeleteTerm)
+			r.Get("/calendar", s.handleCalendarMonth)
+			r.Put("/calendar", s.handleSetCalendar)
+			r.Put("/calendar/entries", s.handleSaveCalendarEntries)
+			r.Delete("/calendar", s.handleDeleteCalendar)
+			r.Route("/admins", func(r chi.Router) {
+				r.Use(s.requireOwner)
+				r.Get("/", s.handleListAdmins)
+				r.Post("/", s.handleCreateAdmin)
+				r.Patch("/{id}", s.handleUpdateAdmin)
+				r.Post("/{id}/password", s.handleResetAdminPassword)
+			})
 		})
 
 		r.NotFound(func(w http.ResponseWriter, _ *http.Request) {

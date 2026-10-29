@@ -9,8 +9,48 @@ import (
 	"context"
 )
 
+const createAdmin = `-- name: CreateAdmin :one
+INSERT INTO admins (email, name, role, active, password_hash, must_change_password)
+VALUES (lower($1::text), $2::text, 'admin', true, $3::text, true)
+ON CONFLICT (email) DO NOTHING
+RETURNING id, email, name, role, active, created_at, password_hash, session_version, must_change_password
+`
+
+type CreateAdminParams struct {
+	Email        string `json:"email"`
+	Name         string `json:"name"`
+	PasswordHash string `json:"password_hash"`
+}
+
+// Returns no row when the email is already taken.
+func (q *Queries) CreateAdmin(ctx context.Context, arg CreateAdminParams) (Admin, error) {
+	row := q.db.QueryRow(ctx, createAdmin, arg.Email, arg.Name, arg.PasswordHash)
+	var i Admin
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.Name,
+		&i.Role,
+		&i.Active,
+		&i.CreatedAt,
+		&i.PasswordHash,
+		&i.SessionVersion,
+		&i.MustChangePassword,
+	)
+	return i, err
+}
+
+const endSessions = `-- name: EndSessions :exec
+UPDATE admins SET session_version = session_version + 1 WHERE id = $1
+`
+
+func (q *Queries) EndSessions(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, endSessions, id)
+	return err
+}
+
 const getAdminByEmail = `-- name: GetAdminByEmail :one
-SELECT id, email, name, role, active, created_at FROM admins WHERE email = lower($1::text)
+SELECT id, email, name, role, active, created_at, password_hash, session_version, must_change_password FROM admins WHERE email = lower($1::text)
 `
 
 func (q *Queries) GetAdminByEmail(ctx context.Context, email string) (Admin, error) {
@@ -23,12 +63,15 @@ func (q *Queries) GetAdminByEmail(ctx context.Context, email string) (Admin, err
 		&i.Role,
 		&i.Active,
 		&i.CreatedAt,
+		&i.PasswordHash,
+		&i.SessionVersion,
+		&i.MustChangePassword,
 	)
 	return i, err
 }
 
 const getAdminByID = `-- name: GetAdminByID :one
-SELECT id, email, name, role, active, created_at FROM admins WHERE id = $1
+SELECT id, email, name, role, active, created_at, password_hash, session_version, must_change_password FROM admins WHERE id = $1
 `
 
 func (q *Queries) GetAdminByID(ctx context.Context, id int64) (Admin, error) {
@@ -41,8 +84,84 @@ func (q *Queries) GetAdminByID(ctx context.Context, id int64) (Admin, error) {
 		&i.Role,
 		&i.Active,
 		&i.CreatedAt,
+		&i.PasswordHash,
+		&i.SessionVersion,
+		&i.MustChangePassword,
 	)
 	return i, err
+}
+
+const insertOwnerIfMissing = `-- name: InsertOwnerIfMissing :exec
+INSERT INTO admins (email, role, active)
+VALUES (lower($1::text), 'owner', true)
+ON CONFLICT (email) DO NOTHING
+`
+
+// Startup: make sure OWNER_EMAIL exists. Never changes an existing admin
+// (role, status or password), so in-app changes survive restarts.
+func (q *Queries) InsertOwnerIfMissing(ctx context.Context, email string) error {
+	_, err := q.db.Exec(ctx, insertOwnerIfMissing, email)
+	return err
+}
+
+const listAdmins = `-- name: ListAdmins :many
+SELECT id, email, name, role, active, created_at, password_hash, session_version, must_change_password FROM admins ORDER BY role DESC, email
+`
+
+func (q *Queries) ListAdmins(ctx context.Context) ([]Admin, error) {
+	rows, err := q.db.Query(ctx, listAdmins)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Admin
+	for rows.Next() {
+		var i Admin
+		if err := rows.Scan(
+			&i.ID,
+			&i.Email,
+			&i.Name,
+			&i.Role,
+			&i.Active,
+			&i.CreatedAt,
+			&i.PasswordHash,
+			&i.SessionVersion,
+			&i.MustChangePassword,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockActiveOwners = `-- name: LockActiveOwners :many
+SELECT id FROM admins WHERE role = 'owner' AND active ORDER BY id FOR UPDATE
+`
+
+// Taken inside a transaction before changing any role or status, so two
+// concurrent changes cannot both remove the last active Owner.
+func (q *Queries) LockActiveOwners(ctx context.Context) ([]int64, error) {
+	rows, err := q.db.Query(ctx, lockActiveOwners)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const setAdminNameIfEmpty = `-- name: SetAdminNameIfEmpty :exec
@@ -60,11 +179,139 @@ func (q *Queries) SetAdminNameIfEmpty(ctx context.Context, arg SetAdminNameIfEmp
 	return err
 }
 
+const setOwnerPassword = `-- name: SetOwnerPassword :one
+INSERT INTO admins (email, role, active, password_hash)
+VALUES (lower($1::text), 'owner', true, $2::text)
+ON CONFLICT (email) DO UPDATE SET
+    role = 'owner', active = true, password_hash = EXCLUDED.password_hash,
+    must_change_password = false, session_version = admins.session_version + 1
+RETURNING id, email, name, role, active, created_at, password_hash, session_version, must_change_password
+`
+
+type SetOwnerPasswordParams struct {
+	Email        string `json:"email"`
+	PasswordHash string `json:"password_hash"`
+}
+
+// `server create-owner`: create or promote the configured Owner and set the
+// password. Ends any existing sessions for that admin.
+func (q *Queries) SetOwnerPassword(ctx context.Context, arg SetOwnerPasswordParams) (Admin, error) {
+	row := q.db.QueryRow(ctx, setOwnerPassword, arg.Email, arg.PasswordHash)
+	var i Admin
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.Name,
+		&i.Role,
+		&i.Active,
+		&i.CreatedAt,
+		&i.PasswordHash,
+		&i.SessionVersion,
+		&i.MustChangePassword,
+	)
+	return i, err
+}
+
+const setPasswordByEmail = `-- name: SetPasswordByEmail :one
+UPDATE admins
+SET password_hash = $1::text, must_change_password = false,
+    session_version = session_version + 1
+WHERE email = lower($2::text)
+RETURNING id, email, name, role, active, created_at, password_hash, session_version, must_change_password
+`
+
+type SetPasswordByEmailParams struct {
+	PasswordHash string `json:"password_hash"`
+	Email        string `json:"email"`
+}
+
+// `server set-password EMAIL`: emergency reset from the console.
+func (q *Queries) SetPasswordByEmail(ctx context.Context, arg SetPasswordByEmailParams) (Admin, error) {
+	row := q.db.QueryRow(ctx, setPasswordByEmail, arg.PasswordHash, arg.Email)
+	var i Admin
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.Name,
+		&i.Role,
+		&i.Active,
+		&i.CreatedAt,
+		&i.PasswordHash,
+		&i.SessionVersion,
+		&i.MustChangePassword,
+	)
+	return i, err
+}
+
+const setPasswordByID = `-- name: SetPasswordByID :one
+UPDATE admins
+SET password_hash = $1::text,
+    must_change_password = $2::boolean,
+    session_version = session_version + 1
+WHERE id = $3
+RETURNING id, email, name, role, active, created_at, password_hash, session_version, must_change_password
+`
+
+type SetPasswordByIDParams struct {
+	PasswordHash string `json:"password_hash"`
+	MustChange   bool   `json:"must_change"`
+	ID           int64  `json:"id"`
+}
+
+// Owner reset (must_change = true) or own change (false). Ends existing sessions.
+func (q *Queries) SetPasswordByID(ctx context.Context, arg SetPasswordByIDParams) (Admin, error) {
+	row := q.db.QueryRow(ctx, setPasswordByID, arg.PasswordHash, arg.MustChange, arg.ID)
+	var i Admin
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.Name,
+		&i.Role,
+		&i.Active,
+		&i.CreatedAt,
+		&i.PasswordHash,
+		&i.SessionVersion,
+		&i.MustChangePassword,
+	)
+	return i, err
+}
+
+const updateAdminAccess = `-- name: UpdateAdminAccess :one
+UPDATE admins
+SET active = $1::boolean, role = $2::text,
+    session_version = session_version + CASE WHEN $1::boolean THEN 0 ELSE 1 END
+WHERE id = $3
+RETURNING id, email, name, role, active, created_at, password_hash, session_version, must_change_password
+`
+
+type UpdateAdminAccessParams struct {
+	Active bool   `json:"active"`
+	Role   string `json:"role"`
+	ID     int64  `json:"id"`
+}
+
+func (q *Queries) UpdateAdminAccess(ctx context.Context, arg UpdateAdminAccessParams) (Admin, error) {
+	row := q.db.QueryRow(ctx, updateAdminAccess, arg.Active, arg.Role, arg.ID)
+	var i Admin
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.Name,
+		&i.Role,
+		&i.Active,
+		&i.CreatedAt,
+		&i.PasswordHash,
+		&i.SessionVersion,
+		&i.MustChangePassword,
+	)
+	return i, err
+}
+
 const upsertOwner = `-- name: UpsertOwner :one
 INSERT INTO admins (email, role, active)
 VALUES (lower($1::text), 'owner', true)
 ON CONFLICT (email) DO UPDATE SET role = 'owner', active = true
-RETURNING id, email, name, role, active, created_at
+RETURNING id, email, name, role, active, created_at, password_hash, session_version, must_change_password
 `
 
 // Makes OWNER_EMAIL an active owner on startup. Never demotes anyone else.
@@ -78,6 +325,9 @@ func (q *Queries) UpsertOwner(ctx context.Context, email string) (Admin, error) 
 		&i.Role,
 		&i.Active,
 		&i.CreatedAt,
+		&i.PasswordHash,
+		&i.SessionVersion,
+		&i.MustChangePassword,
 	)
 	return i, err
 }

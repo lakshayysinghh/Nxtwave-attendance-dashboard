@@ -92,7 +92,11 @@ export const api = {
   profile: (id: string) => request<Profile>(`/api/public/students/${encodeURIComponent(id)}`),
   month: (id: string, ym: string) =>
     request<Month>(`/api/public/students/${encodeURIComponent(id)}/month?ym=${ym}`),
-  me: () => request<{ id: number; email: string }>("/api/auth/me"),
+  me: () => request<Me>("/api/auth/me"),
+  login: (email: string, password: string) =>
+    request<Me>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  changePassword: (current_password: string, new_password: string) =>
+    request<Me>("/api/auth/password", { method: "POST", body: JSON.stringify({ current_password, new_password }) }),
   devLogin: (email: string) => request("/api/auth/dev-login", { method: "POST", body: JSON.stringify({ email }) }),
   logout: () => fetch("/api/auth/logout", { method: "POST" }),
   students: (q: string) =>
@@ -125,7 +129,7 @@ export type ImportResult = {
 type UploadOpts = { commit?: boolean; skipErrors?: boolean };
 
 /** Uploads a sheet to an import endpoint: a preview by default, or saves it with commit. */
-async function uploadSheet<T>(kind: "students" | "attendance", file: File, opts: UploadOpts): Promise<T> {
+async function uploadSheet<T>(kind: "students" | "attendance" | "calendar", file: File, opts: UploadOpts): Promise<T> {
   const form = new FormData();
   form.append("file", file);
   const qs = new URLSearchParams({ commit: String(!!opts.commit), skip_errors: String(!!opts.skipErrors) });
@@ -154,6 +158,7 @@ export type AttendanceImportResult = {
   file_name: string;
   dates: string[];
   header_errors: string[];
+  missing_dates: MissingDate[];
   summary: {
     rows: number;
     students_affected: number;
@@ -172,3 +177,98 @@ export const importAttendance = (file: File, opts: UploadOpts = {}) =>
   uploadSheet<AttendanceImportResult>("attendance", file, opts);
 
 export const pctText = (p: number | null) => (p === null ? "–" : `${p.toFixed(1)}%`);
+
+export type Me = { id: number; email: string; name: string; role: "owner" | "admin"; must_change_password: boolean };
+
+export type AdminAccount = {
+  id: number;
+  email: string;
+  name: string;
+  role: "owner" | "admin";
+  active: boolean;
+  has_password: boolean;
+  must_change_password: boolean;
+};
+
+/** Owner-only admin management. */
+export const adminsApi = {
+  list: () => request<{ admins: AdminAccount[] }>("/api/admin/admins"),
+  create: (name: string, email: string, password: string) =>
+    request<AdminAccount>("/api/admin/admins", { method: "POST", body: JSON.stringify({ name, email, password }) }),
+  resetPassword: (id: number, password: string) =>
+    request<AdminAccount>(`/api/admin/admins/${id}/password`, { method: "POST", body: JSON.stringify({ password }) }),
+  update: (id: number, change: { active?: boolean; role?: "owner" | "admin" }) =>
+    request<AdminAccount>(`/api/admin/admins/${id}`, { method: "PATCH", body: JSON.stringify(change) }),
+};
+
+export type TermRow = { id: number; name: string; start: string; end: string; is_current: boolean };
+export type DayType = "working" | "holiday" | "exam" | "event";
+
+export const termsApi = {
+  list: () => request<{ terms: TermRow[]; today: string }>("/api/admin/terms"),
+  create: (t: { name: string; start: string; end: string; is_current?: boolean }) =>
+    request<TermRow>("/api/admin/terms", { method: "POST", body: JSON.stringify(t) }),
+  update: (id: number, t: { name?: string; start?: string; end?: string; is_current?: true }) =>
+    request<TermRow>(`/api/admin/terms/${id}`, { method: "PATCH", body: JSON.stringify(t) }),
+  remove: async (id: number) => {
+    const res = await fetch(`/api/admin/terms/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new ApiError(res.status, body?.error?.message ?? `Delete failed (${res.status})`);
+    }
+  },
+};
+
+export type CalendarEntry = { applies_to: string; day_type: DayType; counts: boolean; label: string };
+export type CalendarDay = {
+  date: string;
+  weekday: number;
+  kind: DayType | "sunday";
+  label: string;
+  in_term: boolean;
+  counted: boolean;
+  entries: CalendarEntry[];
+};
+
+export const calendarApi = {
+  month: (ym: string, view: string) =>
+    request<{ month: string; view: string; today: string; applies_to: string[]; days: CalendarDay[] }>(
+      `/api/admin/calendar?ym=${ym}&view=${encodeURIComponent(view)}`,
+    ),
+  set: (e: { from: string; to: string; applies_to: string; day_type: DayType; counts?: boolean; label: string; include_sundays: boolean }) =>
+    request<{ saved: number; warning?: string }>("/api/admin/calendar", { method: "PUT", body: JSON.stringify(e) }),
+  remove: (from: string, to: string, applies_to: string) =>
+    request<{ deleted: number }>(
+      `/api/admin/calendar?${new URLSearchParams({ from, to, applies_to })}`,
+      { method: "DELETE" },
+    ),
+};
+
+/** A date between the first and last attendance columns with no column of its own (Sundays excluded). */
+export type MissingDate = { date: string; weekday: number; entries: CalendarEntry[]; has_marks: boolean };
+
+export type CalendarImportRow = {
+  row: number;
+  date: string;
+  day_type: string;
+  applies_to: string;
+  label: string;
+  counts: boolean;
+  action: "new" | "update" | "unchanged" | "error";
+  errors: string[];
+  warnings: string[];
+};
+
+export type CalendarImportResult = {
+  file_name: string;
+  summary: { total: number; new: number; updated: number; unchanged: number; errors: number; warnings: number };
+  rows: CalendarImportRow[];
+  committed: boolean;
+  saved: number;
+};
+
+export const importCalendar = (file: File, opts: UploadOpts = {}) => uploadSheet<CalendarImportResult>("calendar", file, opts);
+
+/** Save single-date calendar entries in one go (e.g. picked missing dates). */
+export const saveCalendarEntries = (entries: { date: string; applies_to: string; day_type: DayType; label: string }[]) =>
+  request<{ saved: number; warning?: string }>("/api/admin/calendar/entries", { method: "PUT", body: JSON.stringify(entries) });

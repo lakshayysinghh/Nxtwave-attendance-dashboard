@@ -7,8 +7,6 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-
-	"attendance-dashboard/api/internal/auth"
 )
 
 type devLoginRequest struct {
@@ -41,13 +39,10 @@ func (s *Server) handleDevLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := s.signer.Sign(auth.PurposeSession, sessionClaims{AdminID: admin.ID}, s.now().Add(sessionTTL))
-	if err != nil {
-		s.log.Error("sign session", "err", err)
-		writeError(w, http.StatusInternalServerError, "internal", "Could not sign in.", nil)
+	if err := s.startSession(w, admin); err != nil {
+		s.internalError(w, "sign session", err)
 		return
 	}
-	http.SetCookie(w, s.cookie(sessionCookie, token, "/", sessionTTL))
 	s.log.Info("admin signed in (dev login)", "admin_id", admin.ID)
-	writeJSON(w, http.StatusOK, meResponse{ID: admin.ID, Email: admin.Email, Name: admin.Name, Role: admin.Role})
+	writeJSON(w, http.StatusOK, toMe(admin))
 }

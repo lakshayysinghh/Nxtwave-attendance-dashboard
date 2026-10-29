@@ -38,9 +38,11 @@ type attendanceImportSummary struct {
 }
 
 type attendanceImportResponse struct {
-	FileName     string                  `json:"file_name"`
-	Dates        []string                `json:"dates"` // date columns that will be read, YYYY-MM-DD
-	HeaderErrors []string                `json:"header_errors"`
+	FileName     string   `json:"file_name"`
+	Dates        []string `json:"dates"` // date columns that will be read, YYYY-MM-DD
+	HeaderErrors []string `json:"header_errors"`
+	// MissingDates are suggestions for calendar entries, never applied automatically.
+	MissingDates []missingDate           `json:"missing_dates"`
 	Summary      attendanceImportSummary `json:"summary"`
 	Rows         []attendanceImportRow   `json:"rows"`
 	Committed    bool                    `json:"committed"`
@@ -130,6 +132,9 @@ func (s *Server) previewAttendance(r *http.Request, fileName string, sheet impor
 		}
 	}
 	slices.Sort(resp.Dates)
+	if resp.MissingDates, err = s.missingDates(r.Context(), resp.Dates); err != nil {
+		return resp, changes, err
+	}
 
 	var ids []string
 	for _, row := range sheet.Rows {

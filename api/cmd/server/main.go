@@ -6,6 +6,9 @@
 //	server migrate down-all  roll back every migration
 //	server seed              load demo data (idempotent)
 //	server seed --clear-demo delete N99 demo students and their marks
+//	server create-owner      one-time setup: set the OWNER_EMAIL admin's password (prompted)
+//	server create-owner --reset  replace the Owner's password
+//	server set-password EMAIL    emergency password reset for an existing admin (prompted)
 package main
 
 import (
@@ -50,12 +53,18 @@ func run(log *slog.Logger, args []string) error {
 		switch {
 		case len(args) == 2 && args[0] == "migrate":
 			return runMigrate(log, cfg.DatabaseURL, migrations.Direction(args[1]))
+		case len(args) == 1 && args[0] == "create-owner":
+			return runCreateOwner(cfg, false)
+		case len(args) == 2 && args[0] == "create-owner" && args[1] == "--reset":
+			return runCreateOwner(cfg, true)
+		case len(args) == 2 && args[0] == "set-password":
+			return runSetPassword(cfg, args[1])
 		case len(args) == 1 && args[0] == "seed":
 			return runSeed(log, cfg, false)
 		case len(args) == 2 && args[0] == "seed" && args[1] == "--clear-demo":
 			return runSeed(log, cfg, true)
 		}
-		return fmt.Errorf("unknown command %q (want: migrate up|down|down-all, seed [--clear-demo])", strings.Join(args, " "))
+		return fmt.Errorf("unknown command %q (want: migrate up|down|down-all, seed [--clear-demo], create-owner [--reset], set-password EMAIL)", strings.Join(args, " "))
 	}
 
 	if os.Getenv("MIGRATE_ON_START") == "true" {
@@ -83,11 +92,10 @@ func serve(log *slog.Logger, cfg config.Config) error {
 	queries := db.New(pool)
 
 	if cfg.OwnerEmail != "" {
-		owner, err := queries.UpsertOwner(ctx, cfg.OwnerEmail)
-		if err != nil {
+		// Only inserts a missing Owner; never changes an existing admin or password.
+		if err := queries.InsertOwnerIfMissing(ctx, cfg.OwnerEmail); err != nil {
 			return fmt.Errorf("ensure owner admin (are migrations applied?): %w", err)
 		}
-		log.Info("owner admin ensured", "admin_id", owner.ID)
 	} else {
 		log.Warn("OWNER_EMAIL is not set; no one can sign in until an admin exists")
 	}

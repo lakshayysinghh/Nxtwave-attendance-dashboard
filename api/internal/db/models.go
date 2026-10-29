@@ -9,12 +9,15 @@ import (
 )
 
 type Admin struct {
-	ID        int64              `json:"id"`
-	Email     string             `json:"email"`
-	Name      string             `json:"name"`
-	Role      string             `json:"role"`
-	Active    bool               `json:"active"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID                 int64              `json:"id"`
+	Email              string             `json:"email"`
+	Name               string             `json:"name"`
+	Role               string             `json:"role"`
+	Active             bool               `json:"active"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	PasswordHash       pgtype.Text        `json:"password_hash"`
+	SessionVersion     int32              `json:"session_version"`
+	MustChangePassword bool               `json:"must_change_password"`
 }
 
 type Attendance struct {

@@ -1,148 +1,157 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowRight, ClipboardCheck, Upload } from "lucide-react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { ImportAttendance } from "@/components/import-attendance";
-import { ImportStudents } from "@/components/import-students";
+import { PageHeading } from "@/components/admin-shell";
 import { DayStatus, Legend, MarkChip, PctBadge, TermRange, bandInfo, fmtDay } from "@/components/attendance-ui";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ApiError, api, pctText, type Band, type Mark, type MarkInput } from "@/lib/api";
+import { ApiError, api, pctText, type AdminStudent, type Band, type Mark, type MarkInput } from "@/lib/api";
 
 const inputCls =
   "h-10 rounded-md border border-input bg-white px-3 text-sm outline-none placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/15";
 
-const devTag = (
-  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-900 ring-1 ring-inset ring-amber-200">
-    Development login
-  </span>
-);
+type BandKey = Exclude<Band, "none">;
+const bandOrder: BandKey[] = ["below_60", "60_to_75", "75_plus"];
+const isBand = (v: string | null): v is BandKey => !!v && (bandOrder as string[]).includes(v);
 
-export function AdminDashboard() {
-  const me = useQuery({ queryKey: ["me"], queryFn: api.me, retry: false });
-  if (me.isPending) return <p className="text-sm text-muted-foreground">Loading…</p>;
-  if (me.error) return <DevLogin />;
-  return <SignedIn email={me.data.email} />;
-}
+/** Every student with term summaries; stats always cover everyone. */
+const useAllStudents = () => useQuery({ queryKey: ["students", ""], queryFn: () => api.students("") });
 
-function DevLogin() {
-  const qc = useQueryClient();
-  const [email, setEmail] = useState("");
-  const login = useMutation({
-    mutationFn: () => api.devLogin(email.trim()),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["me"] }),
-  });
+/** Students, average and the three band cards. Band cards call onBand. */
+function SummaryCards({ band, onBand, hint }: { band?: BandKey | null; onBand: (b: BandKey) => void; hint: (on: boolean) => string }) {
+  const all = useAllStudents();
+  const o = all.data?.overview;
+  const withData = o ? o.students - o.bands.none : 0;
   return (
-    <div className="flex flex-1 items-start justify-center pt-6 sm:pt-12">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle className="text-lg">Admin sign-in</CardTitle>
-          <CardDescription className="flex flex-col gap-2">
-            <span>{devTag}</span>
-            <span>For local demos only. Enter an admin email; no password is needed.</span>
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form
-            className="flex flex-col gap-3"
-            onSubmit={(e) => {
-              e.preventDefault();
-              login.mutate();
-            }}
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <SummaryCard label="Students" value={o ? String(o.students) : "…"} />
+      <SummaryCard label="Average attendance" value={o ? pctText(o.average_pct) : "…"} accent />
+      {bandOrder.map((b) => {
+        const count = o?.bands[b] ?? 0;
+        const share = withData ? Math.round((count * 100) / withData) : 0;
+        const on = band === b;
+        return (
+          <button
+            key={b}
+            type="button"
+            onClick={() => onBand(b)}
+            aria-pressed={on}
+            className={`rounded-xl bg-card p-3 text-left ring-1 ${on ? "ring-2 ring-primary" : "ring-foreground/10 hover:ring-primary/40"} ${b === "75_plus" ? "col-span-2 lg:col-span-1" : ""}`}
           >
-            <label className="flex flex-col gap-1.5 text-sm font-medium">
-              Admin email
-              <input className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="admin@demo.local" />
-            </label>
-            <Button type="submit" className="h-10" disabled={!email.trim() || login.isPending}>
-              {login.isPending ? "Signing in…" : "Sign in"}
-            </Button>
-            {login.error && <p className="text-sm text-red-700">{login.error.message}</p>}
-          </form>
-        </CardContent>
-      </Card>
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className={`size-2 rounded-full ${bandInfo[b].dot}`} />
+              {bandInfo[b].label}
+            </div>
+            <div className="mt-1 flex items-baseline gap-2">
+              <span className="text-2xl font-semibold tabular-nums">{o ? `${share}%` : "…"}</span>
+              <span className="text-sm text-muted-foreground">
+                {count} student{count === 1 ? "" : "s"}
+              </span>
+            </div>
+            <div className="mt-1 text-xs text-primary">{hint(on)}</div>
+          </button>
+        );
+      })}
     </div>
   );
 }
 
-type BandKey = Exclude<Band, "none">;
-const bandOrder: BandKey[] = ["below_60", "60_to_75", "75_plus"];
+function TermLine() {
+  const all = useAllStudents();
+  if (!all.data) return null;
+  return (
+    <>
+      {all.data.term ? <TermRange term={all.data.term} /> : "No current term"} · data up to {fmtDay(all.data.today)}
+    </>
+  );
+}
 
-function SignedIn({ email }: { email: string }) {
-  const qc = useQueryClient();
+/** Overview: the numbers at a glance, students needing attention and quick actions. */
+export function OverviewPage() {
+  const router = useRouter();
+  const all = useAllStudents();
+  // Lowest first among students below 75% (the plan's default low threshold).
+  const attention = (all.data?.students ?? [])
+    .filter((s) => s.summary.pct !== null && (s.band === "below_60" || s.band === "60_to_75"))
+    .sort((a, b) => (a.summary.pct ?? 0) - (b.summary.pct ?? 0));
+  const shown = attention.slice(0, 6);
+
+  return (
+    <>
+      <PageHeading title="Overview" description={<TermLine />}>
+        <QuickAction href="/admin/attendance" icon={ClipboardCheck} label="Mark attendance" primary />
+        <QuickAction href="/admin/imports?tab=students" icon={Upload} label="Import students" />
+        <QuickAction href="/admin/imports?tab=attendance" icon={Upload} label="Import attendance" />
+      </PageHeading>
+
+      <SummaryCards onBand={(b) => router.push(`/admin/students?band=${b}`)} hint={() => "View these students →"} />
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle>Students needing attention</CardTitle>
+            <Link href="/admin/students" className="flex items-center gap-1 text-sm font-medium text-primary hover:underline">
+              All students <ArrowRight className="size-4" />
+            </Link>
+          </div>
+          <CardDescription>
+            {all.data
+              ? attention.length
+                ? `Lowest attendance first: ${shown.length} of ${attention.length} student${attention.length === 1 ? "" : "s"} below 75%.`
+                : "No student is below 75% right now."
+              : "Loading…"}
+          </CardDescription>
+        </CardHeader>
+        {shown.length > 0 && (
+          <CardContent>
+            <StudentRows rows={shown} compact />
+          </CardContent>
+        )}
+      </Card>
+    </>
+  );
+}
+
+function QuickAction({ href, icon: Icon, label, primary }: { href: string; icon: typeof Upload; label: string; primary?: boolean }) {
+  return (
+    <Link
+      href={href}
+      className={`inline-flex h-9 items-center gap-2 rounded-md px-3 text-sm font-medium ${
+        primary ? "bg-primary text-primary-foreground hover:bg-primary/90" : "border border-input bg-white text-slate-700 hover:bg-muted"
+      }`}
+    >
+      <Icon className="size-4" />
+      {label}
+    </Link>
+  );
+}
+
+/** Students: band cards as filters, search and the full table. ?band= preselects a band. */
+export function StudentsPage() {
+  const params = useSearchParams();
+  const initial = params.get("band");
   const [q, setQ] = useState("");
-  const [band, setBand] = useState<BandKey | null>(null);
-  // Stats always cover everyone; the table applies the search and band filter.
-  const all = useQuery({ queryKey: ["students", ""], queryFn: () => api.students("") });
+  const [band, setBand] = useState<BandKey | null>(isBand(initial) ? initial : null);
+  const all = useAllStudents();
   const list = useQuery({ queryKey: ["students", q], queryFn: () => api.students(q), placeholderData: (prev) => prev });
   const o = all.data?.overview;
-  const withData = o ? o.students - o.bands.none : 0;
   const rows = (list.data?.students ?? []).filter((s) => !band || s.band === band);
   const filtered = q !== "" || band !== null;
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-primary">Admin dashboard</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            <TermRange term={all.data?.term ?? null} />
-            {all.data && <> · data up to {fmtDay(all.data.today)}</>}
-          </p>
-        </div>
-        <div className="flex items-center gap-3 text-sm">
-          <span className="hidden text-muted-foreground sm:inline">
-            {email} {devTag}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={async () => {
-              await api.logout();
-              qc.clear();
-              qc.invalidateQueries({ queryKey: ["me"] });
-            }}
-          >
-            Sign out
-          </Button>
-        </div>
-      </div>
+    <>
+      <PageHeading title="Students" description={<TermLine />} />
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <SummaryCard label="Students" value={o ? String(o.students) : "…"} />
-        <SummaryCard label="Average attendance" value={o ? pctText(o.average_pct) : "…"} accent />
-        {bandOrder.map((b) => {
-          const count = o?.bands[b] ?? 0;
-          const share = withData ? Math.round((count * 100) / withData) : 0;
-          const on = band === b;
-          return (
-            <button
-              key={b}
-              type="button"
-              onClick={() => setBand(on ? null : b)}
-              aria-pressed={on}
-              className={`rounded-xl bg-card p-3 text-left ring-1 ${on ? "ring-2 ring-primary" : "ring-foreground/10 hover:ring-primary/40"} ${b === "75_plus" ? "col-span-2 lg:col-span-1" : ""}`}
-            >
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <span className={`size-2 rounded-full ${bandInfo[b].dot}`} />
-                {bandInfo[b].label}
-              </div>
-              <div className="mt-1 flex items-baseline gap-2">
-                <span className="text-2xl font-semibold tabular-nums">{o ? `${share}%` : "…"}</span>
-                <span className="text-sm text-muted-foreground">
-                  {count} student{count === 1 ? "" : "s"}
-                </span>
-              </div>
-              <div className="mt-1 text-xs text-primary">{on ? "Showing these · click to undo" : "Click to list students"}</div>
-            </button>
-          );
-        })}
-      </div>
+      <SummaryCards band={band} onBand={(b) => setBand(band === b ? null : b)} hint={(on) => (on ? "Showing these · click to undo" : "Click to list students")} />
 
       <Card>
         <CardHeader>
-          <CardTitle>Students</CardTitle>
+          <CardTitle>All students</CardTitle>
           <CardDescription>Search by name or NIAT ID, or pick a band above.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
@@ -171,69 +180,68 @@ function SignedIn({ email }: { email: string }) {
             {band && <> · band: {bandInfo[band].label}</>}
             {q && <> · search: “{q}”</>}
           </p>
-
-          {/* Desktop table */}
-          <div className="hidden overflow-x-auto rounded-md border border-border sm:block">
-            <table className="w-full text-sm">
-              <thead className="bg-muted text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <tr>
-                  <th className="px-3 py-2 font-medium">NIAT ID</th>
-                  <th className="px-3 py-2 font-medium">Name</th>
-                  <th className="px-3 py-2 font-medium">Degree</th>
-                  <th className="px-3 py-2 text-right font-medium">Days present</th>
-                  <th className="px-3 py-2 text-right font-medium">Days absent</th>
-                  <th className="px-3 py-2 text-right font-medium">Working days</th>
-                  <th className="px-3 py-2 text-right font-medium">Attendance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((s) => (
-                  <tr key={s.niat_id} className="border-t border-border hover:bg-muted/60">
-                    <td className="px-3 py-2 font-mono text-xs">{s.niat_id}</td>
-                    <td className="px-3 py-2 font-medium">{s.name}</td>
-                    <td className="px-3 py-2">{s.degree}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{s.summary.days_attended}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{s.summary.days_absent}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{s.summary.counted_days}</td>
-                    <td className="px-3 py-2 text-right">
-                      <PctBadge pct={s.summary.pct} band={s.band} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Phone cards */}
-          <ul className="flex flex-col gap-2 sm:hidden">
-            {rows.map((s) => (
-              <li key={s.niat_id} className="rounded-md border border-border p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="font-medium">{s.name}</div>
-                    <div className="font-mono text-xs text-muted-foreground">
-                      {s.niat_id} · {s.degree}
-                    </div>
-                  </div>
-                  <PctBadge pct={s.summary.pct} band={s.band} />
-                </div>
-                <div className="mt-2 text-xs text-muted-foreground">
-                  Present {s.summary.days_attended} · Absent {s.summary.days_absent} · of {s.summary.counted_days} days
-                </div>
-              </li>
-            ))}
-          </ul>
-
+          <StudentRows rows={rows} />
           {list.isSuccess && rows.length === 0 && <p className="py-2 text-sm text-muted-foreground">No students match these filters.</p>}
         </CardContent>
       </Card>
+    </>
+  );
+}
 
-      <ImportStudents />
+/** The existing student table (desktop) and stacked cards (phones). */
+function StudentRows({ rows, compact }: { rows: AdminStudent[]; compact?: boolean }) {
+  return (
+    <>
+      <div className="hidden overflow-x-auto rounded-md border border-border sm:block">
+        <table className="w-full text-sm">
+          <thead className="bg-muted text-left text-xs uppercase tracking-wide text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2 font-medium">NIAT ID</th>
+              <th className="px-3 py-2 font-medium">Name</th>
+              <th className="px-3 py-2 font-medium">Degree</th>
+              <th className="px-3 py-2 text-right font-medium">Days present</th>
+              {!compact && <th className="px-3 py-2 text-right font-medium">Days absent</th>}
+              <th className="px-3 py-2 text-right font-medium">Working days</th>
+              <th className="px-3 py-2 text-right font-medium">Attendance</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((s) => (
+              <tr key={s.niat_id} className="border-t border-border hover:bg-muted/60">
+                <td className={`px-3 font-mono text-xs ${compact ? "py-1.5" : "py-2"}`}>{s.niat_id}</td>
+                <td className="px-3 font-medium">{s.name}</td>
+                <td className="px-3">{s.degree}</td>
+                <td className="px-3 text-right tabular-nums">{s.summary.days_attended}</td>
+                {!compact && <td className="px-3 text-right tabular-nums">{s.summary.days_absent}</td>}
+                <td className="px-3 text-right tabular-nums">{s.summary.counted_days}</td>
+                <td className="px-3 text-right">
+                  <PctBadge pct={s.summary.pct} band={s.band} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
-      <ImportAttendance />
-
-      <MarkAttendance />
-    </div>
+      <ul className="flex flex-col gap-2 sm:hidden">
+        {rows.map((s) => (
+          <li key={s.niat_id} className="rounded-md border border-border p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="font-medium">{s.name}</div>
+                <div className="font-mono text-xs text-muted-foreground">
+                  {s.niat_id} · {s.degree}
+                </div>
+              </div>
+              <PctBadge pct={s.summary.pct} band={s.band} />
+            </div>
+            <div className="mt-2 text-xs text-muted-foreground">
+              Present {s.summary.days_attended} · Absent {s.summary.days_absent} · of {s.summary.counted_days} days
+            </div>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 
@@ -253,7 +261,7 @@ const choices: { value: Mark; label: string; on: string }[] = [
 ];
 
 /** Whole-day marking: one choice per student, saved to both halves (FH and SH). */
-function MarkAttendance() {
+export function MarkAttendance() {
   const qc = useQueryClient();
   const [date, setDate] = useState("");
   const sheet = useQuery({ queryKey: ["sheet", date], queryFn: () => api.sheet(date) });

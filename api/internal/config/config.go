@@ -77,12 +77,10 @@ func fromEnv(env string, getenv func(string) string) (Config, error) {
 	if cfg.IsProduction() {
 		var missing []string
 		for key, val := range map[string]string{
-			"DATABASE_URL":         cfg.DatabaseURL,
-			"APP_BASE_URL":         cfg.AppBaseURL,
-			"SESSION_SECRET":       cfg.SessionSecret,
-			"GOOGLE_CLIENT_ID":     cfg.GoogleClientID,
-			"GOOGLE_CLIENT_SECRET": cfg.GoogleClientSecret,
-			"OWNER_EMAIL":          cfg.OwnerEmail,
+			"DATABASE_URL":   cfg.DatabaseURL,
+			"APP_BASE_URL":   cfg.AppBaseURL,
+			"SESSION_SECRET": cfg.SessionSecret,
+			"OWNER_EMAIL":    cfg.OwnerEmail,
 		} {
 			if val == "" {
 				missing = append(missing, key)

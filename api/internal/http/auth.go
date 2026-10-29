@@ -38,17 +38,6 @@ type oauthFlow struct {
 	Verifier string `json:"verifier"`
 }
 
-type sessionClaims struct {
-	AdminID int64 `json:"admin_id"`
-}
-
-type meResponse struct {
-	ID    int64  `json:"id"`
-	Email string `json:"email"`
-	Name  string `json:"name"`
-	Role  string `json:"role"`
-}
-
 func (s *Server) handleGoogleLogin(w http.ResponseWriter, r *http.Request) {
 	if s.google == nil {
 		writeError(w, http.StatusServiceUnavailable, "sign_in_not_configured",
@@ -118,25 +107,32 @@ func (s *Server) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	token, err := s.signer.Sign(auth.PurposeSession, sessionClaims{AdminID: admin.ID}, s.now().Add(sessionTTL))
-	if err != nil {
+	if err := s.startSession(w, admin); err != nil {
 		s.log.Error("sign session", "err", err)
 		s.redirectToLogin(w, r, loginErrFailed)
 		return
 	}
-	http.SetCookie(w, s.cookie(sessionCookie, token, "/", sessionTTL))
 	s.log.Info("admin signed in", "admin_id", admin.ID)
 	http.Redirect(w, r, s.appBaseURL+"/admin", http.StatusFound)
 }
 
-func (s *Server) handleLogout(w http.ResponseWriter, _ *http.Request) {
+// handleLogout ends the session on the server (by bumping the admin's
+// session version, which also signs out their other devices) and clears the cookie.
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if admin, err := s.sessionAdmin(r); err == nil {
+		if err := s.store.EndSessions(r.Context(), admin.ID); err != nil {
+			s.internalError(w, "logout", err)
+			return
+		}
+		s.log.Info("admin signed out", "admin_id", admin.ID)
+	}
 	http.SetCookie(w, s.cookie(sessionCookie, "", "/", -1))
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	a := adminFrom(r.Context())
-	writeJSON(w, http.StatusOK, meResponse{ID: a.ID, Email: a.Email, Name: a.Name, Role: a.Role})
+	writeJSON(w, http.StatusOK, toMe(a))
 }
 
 func (s *Server) redirectToLogin(w http.ResponseWriter, r *http.Request, reason string) {

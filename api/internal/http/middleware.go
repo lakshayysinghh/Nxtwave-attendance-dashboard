@@ -5,9 +5,6 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/jackc/pgx/v5"
-
-	"attendance-dashboard/api/internal/auth"
 	"attendance-dashboard/api/internal/db"
 )
 
@@ -19,32 +16,36 @@ func adminFrom(ctx context.Context) db.Admin {
 	return a
 }
 
-// requireAdmin accepts a valid session cookie whose admin still exists and is
-// active: 401 without a valid session, 403 for a deactivated admin. The
-// database check means deactivating an admin takes effect at once.
+// requireAdmin checks the session on every request against the database:
+// 401 without a valid, current session (signed out, password changed, or
+// expired), 403 for a deactivated admin.
 func (s *Server) requireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		c, err := r.Cookie(sessionCookie)
-		var claims sessionClaims
-		if err != nil || s.signer.Verify(auth.PurposeSession, c.Value, s.now(), &claims) != nil {
+		admin, err := s.sessionAdmin(r)
+		switch {
+		case errors.Is(err, errNoSession):
 			writeError(w, http.StatusUnauthorized, "unauthenticated", "Sign in required.", nil)
 			return
-		}
-		admin, err := s.store.GetAdminByID(r.Context(), claims.AdminID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusUnauthorized, "unauthenticated", "Sign in required.", nil)
-			return
-		}
-		if err == nil && !admin.Active {
+		case errors.Is(err, errDeactivated):
 			writeError(w, http.StatusForbidden, "admin_deactivated", "This admin account has been deactivated.", nil)
 			return
-		}
-		if err != nil {
-			s.log.Error("requireAdmin: load admin", "err", err)
-			writeError(w, http.StatusInternalServerError, "internal", "Could not check the session.", nil)
+		case err != nil:
+			s.internalError(w, "requireAdmin: load admin", err)
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), adminKey{}, admin)))
+	})
+}
+
+// requirePasswordChanged must run after requireAdmin. It blocks admin APIs
+// until an admin given a password by the Owner has chosen their own.
+func (s *Server) requirePasswordChanged(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if adminFrom(r.Context()).MustChangePassword {
+			writeError(w, http.StatusForbidden, "password_change_required", "Change your initial password before continuing.", nil)
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 
@@ -52,7 +53,7 @@ func (s *Server) requireAdmin(next http.Handler) http.Handler {
 func (s *Server) requireOwner(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if adminFrom(r.Context()).Role != "owner" {
-			writeError(w, http.StatusForbidden, "forbidden", "Only an owner can do this.", nil)
+			writeError(w, http.StatusForbidden, "forbidden", "Only the Owner can do this.", nil)
 			return
 		}
 		next.ServeHTTP(w, r)

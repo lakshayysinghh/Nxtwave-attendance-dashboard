@@ -9,38 +9,71 @@ import (
 )
 
 type Querier interface {
+	ClearCurrentTerm(ctx context.Context, id int64) error
+	CountAttendanceBetween(ctx context.Context, arg CountAttendanceBetweenParams) (int64, error)
+	// Dates in the range that already have marks for students the entry applies to.
+	CountMarkedDatesForDegree(ctx context.Context, arg CountMarkedDatesForDegreeParams) (int64, error)
+	// Returns no row when the email is already taken.
+	CreateAdmin(ctx context.Context, arg CreateAdminParams) (Admin, error)
+	CreateTerm(ctx context.Context, arg CreateTermParams) (Term, error)
+	DeleteCalendarRange(ctx context.Context, arg DeleteCalendarRangeParams) (int64, error)
 	DeleteDemoMarks(ctx context.Context) (int64, error)
 	DeleteDemoStudents(ctx context.Context) (int64, error)
 	DeleteMarks(ctx context.Context, arg DeleteMarksParams) (int64, error)
+	DeleteTerm(ctx context.Context, id int64) (int64, error)
+	EndSessions(ctx context.Context, id int64) error
 	GetAdminByEmail(ctx context.Context, email string) (Admin, error)
 	GetAdminByID(ctx context.Context, id int64) (Admin, error)
 	GetMentorByName(ctx context.Context, arg GetMentorByNameParams) (Mentor, error)
 	GetSetting(ctx context.Context, key string) (Setting, error)
 	GetStudent(ctx context.Context, niatID string) (GetStudentRow, error)
 	GetStudentsByIDs(ctx context.Context, niatIds []string) ([]Student, error)
+	GetTerm(ctx context.Context, id int64) (Term, error)
 	InsertCalendarDayIfMissing(ctx context.Context, arg InsertCalendarDayIfMissingParams) error
 	InsertDegreeIfMissing(ctx context.Context, arg InsertDegreeIfMissingParams) error
 	// Seed only: keeps any mark that already exists.
 	InsertMarksIfMissing(ctx context.Context, arg InsertMarksIfMissingParams) (int64, error)
 	InsertMentorIfMissing(ctx context.Context, arg InsertMentorIfMissingParams) error
+	// Startup: make sure OWNER_EMAIL exists. Never changes an existing admin
+	// (role, status or password), so in-app changes survive restarts.
+	InsertOwnerIfMissing(ctx context.Context, email string) error
 	// Seed only: never overwrites an existing student.
 	InsertStudentIfMissing(ctx context.Context, arg InsertStudentIfMissingParams) (int64, error)
 	// Seed only: adds the term unless one with the same name exists.
 	InsertTermIfMissing(ctx context.Context, arg InsertTermIfMissingParams) error
 	ListActiveStudentsInSection(ctx context.Context, arg ListActiveStudentsInSectionParams) ([]Student, error)
+	ListAdmins(ctx context.Context) ([]Admin, error)
 	ListCalendarDays(ctx context.Context, arg ListCalendarDaysParams) ([]CalendarDay, error)
 	ListDegrees(ctx context.Context) ([]Degree, error)
+	// Which degrees already have attendance on each date in the range.
+	ListMarkedDatesByDegree(ctx context.Context, arg ListMarkedDatesByDegreeParams) ([]ListMarkedDatesByDegreeRow, error)
 	ListMarks(ctx context.Context, arg ListMarksParams) ([]ListMarksRow, error)
 	ListSections(ctx context.Context) ([]ListSectionsRow, error)
 	ListSettings(ctx context.Context) ([]Setting, error)
 	// q matches part of the name or the start of the NIAT ID; empty filters match all.
 	ListStudentsForAdmin(ctx context.Context, arg ListStudentsForAdminParams) ([]ListStudentsForAdminRow, error)
 	ListTerms(ctx context.Context) ([]Term, error)
+	// Taken inside a transaction before changing any role or status, so two
+	// concurrent changes cannot both remove the last active Owner.
+	LockActiveOwners(ctx context.Context) ([]int64, error)
+	MarkTermCurrent(ctx context.Context, id int64) (Term, error)
 	Ping(ctx context.Context) (int32, error)
 	// Public name search. Returns no NIAT IDs.
 	SearchActiveStudentsByName(ctx context.Context, arg SearchActiveStudentsByNameParams) ([]SearchActiveStudentsByNameRow, error)
 	// Fills the display name from the Google profile on first sign-in.
 	SetAdminNameIfEmpty(ctx context.Context, arg SetAdminNameIfEmptyParams) error
+	// `server create-owner`: create or promote the configured Owner and set the
+	// password. Ends any existing sessions for that admin.
+	SetOwnerPassword(ctx context.Context, arg SetOwnerPasswordParams) (Admin, error)
+	// `server set-password EMAIL`: emergency reset from the console.
+	SetPasswordByEmail(ctx context.Context, arg SetPasswordByEmailParams) (Admin, error)
+	// Owner reset (must_change = true) or own change (false). Ends existing sessions.
+	SetPasswordByID(ctx context.Context, arg SetPasswordByIDParams) (Admin, error)
+	UpdateAdminAccess(ctx context.Context, arg UpdateAdminAccessParams) (Admin, error)
+	UpdateTerm(ctx context.Context, arg UpdateTermParams) (Term, error)
+	// One entry per date in the range (optionally skipping Sundays); an existing
+	// entry for the same date and applies_to is replaced.
+	UpsertCalendarRange(ctx context.Context, arg UpsertCalendarRangeParams) (int64, error)
 	UpsertMarks(ctx context.Context, arg UpsertMarksParams) (int64, error)
 	// Makes OWNER_EMAIL an active owner on startup. Never demotes anyone else.
 	UpsertOwner(ctx context.Context, email string) (Admin, error)
