@@ -57,20 +57,12 @@ export function MarkChip({ mark, short }: { mark: Mark; short?: boolean }) {
   );
 }
 
-/** The whole-day status from the two halves. */
-export function DayStatus({ fh, sh }: { fh: Mark; sh: Mark }) {
-  if (fh === sh) return <MarkChip mark={fh} />;
-  if (fh && sh) return <span className="inline-flex rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-inset ring-amber-200">Half day</span>;
-  return <span className="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 ring-1 ring-inset ring-slate-200">Partly marked</span>;
-}
-
 export function Legend() {
   return (
     <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
       <span className="flex items-center gap-1.5"><MarkChip mark="P" short /> P – Present</span>
       <span className="flex items-center gap-1.5"><MarkChip mark="A" short /> A – Absent</span>
       <span className="flex items-center gap-1.5"><MarkChip mark={null} short /> Not marked</span>
-      <span>FH – First half · SH – Second half</span>
     </p>
   );
 }

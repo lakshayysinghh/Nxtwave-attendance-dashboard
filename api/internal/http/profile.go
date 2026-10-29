@@ -54,9 +54,7 @@ type dayJSON struct {
 	Label    string  `json:"label"`
 	Excluded string  `json:"excluded"`
 	Counted  bool    `json:"counted"`
-	FH       *string `json:"fh"`
-	SH       *string `json:"sh"`
-	DayLabel string  `json:"day_label"`
+	Status   *string `json:"status"` // "P", "A" or null; null on days that do not count
 }
 
 type monthResponse struct {
@@ -154,7 +152,7 @@ func (s *Server) month(w http.ResponseWriter, r *http.Request, st db.GetStudentR
 		resp.Days[i] = dayJSON{
 			Date: stats.DateKey(d.Date), Weekday: int(d.Date.Weekday()), Kind: string(d.Kind), Label: d.Label,
 			Excluded: string(d.Excluded), Counted: d.Counted,
-			FH: markJSON(d.Halves[0]), SH: markJSON(d.Halves[1]), DayLabel: string(d.DayLabel),
+			Status: markJSON(d.Status),
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)

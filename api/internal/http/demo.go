@@ -27,7 +27,7 @@ func (s *Server) handlePublicProfile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// GET /api/public/students/{niat_id}/month?ym=YYYY-MM: per-day FH/SH marks.
+// GET /api/public/students/{niat_id}/month?ym=YYYY-MM: the mark for each day.
 func (s *Server) handlePublicMonth(w http.ResponseWriter, r *http.Request) {
 	if st, ok := s.loadStudent(w, r, false); ok {
 		s.month(w, r, st)
@@ -115,12 +115,11 @@ type sheetRow struct {
 	HallNo  string  `json:"hall_no"`
 	Counted bool    `json:"counted"`
 	Reason  string  `json:"reason"` // why the day cannot be marked, when !counted
-	FH      *string `json:"fh"`
-	SH      *string `json:"sh"`
+	Status  *string `json:"status"` // "P", "A" or null
 }
 
 // GET /api/admin/attendance/sheet?date=YYYY-MM-DD (default today)&hall=:
-// FH/SH marks for the date of every active student, or only those in one
+// the mark on that date of every active student, or only those in one
 // hall ("hall=" with no value: students with no hall).
 func (s *Server) handleAdminSheet(w http.ResponseWriter, r *http.Request) {
 	rl, err := s.loadRules(r.Context(), calendarStart, calendarEnd)
@@ -161,10 +160,9 @@ func (s *Server) handleAdminSheet(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		day := stats.ResolveDay(date, statsStudent(st.DegreeCode, st.Status, st.JoinedOn, st.DroppedOn), rl.cal, rl.terms, rl.today)
-		h := marks[st.NiatID][stats.DateKey(date)]
 		row := sheetRow{
 			NiatID: st.NiatID, Name: st.FullName, Degree: st.DegreeCode, Section: st.Section, HallNo: optText(st.HallNo),
-			Counted: day.Counted, FH: markJSON(h[0]), SH: markJSON(h[1]),
+			Counted: day.Counted, Status: markJSON(marks[st.NiatID][stats.DateKey(date)]),
 		}
 		if !day.Counted {
 			row.Reason = notCountedReason(day)
@@ -177,7 +175,6 @@ func (s *Server) handleAdminSheet(w http.ResponseWriter, r *http.Request) {
 type markInput struct {
 	NiatID string  `json:"niat_id"`
 	Date   string  `json:"date"`
-	Half   int16   `json:"half"`
 	Status *string `json:"status"` // "P", "A" or null to clear
 }
 
@@ -187,7 +184,7 @@ type rowError struct {
 	Message string `json:"message"`
 }
 
-// PUT /api/admin/attendance: [{niat_id, date, half, status}]. All rows are
+// PUT /api/admin/attendance: [{niat_id, date, status}]. All rows are
 // checked first; if any fails nothing is saved (422 with per-row errors).
 func (s *Server) handleSaveAttendance(w http.ResponseWriter, r *http.Request) {
 	var in []markInput
@@ -228,8 +225,6 @@ func (s *Server) handleSaveAttendance(w http.ResponseWriter, r *http.Request) {
 			fail("Student is not active.")
 		case dErr != nil:
 			fail(dErr.Error())
-		case m.Half != 1 && m.Half != 2:
-			fail("half must be 1 (first half) or 2 (second half).")
 		case m.Status != nil && *m.Status != "P" && *m.Status != "A":
 			fail(`status must be "P", "A" or null.`)
 		default:
@@ -247,7 +242,6 @@ func (s *Server) handleSaveAttendance(w http.ResponseWriter, r *http.Request) {
 			}
 			target.NiatIds = append(target.NiatIds, m.NiatID)
 			target.Dates = append(target.Dates, pgDate(date))
-			target.Halves = append(target.Halves, m.Half)
 			target.Statuses = append(target.Statuses, status)
 		}
 	}
@@ -266,7 +260,7 @@ func (s *Server) handleSaveAttendance(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if len(toClear.NiatIds) > 0 {
-			_, err := q.DeleteMarks(r.Context(), db.DeleteMarksParams{NiatIds: toClear.NiatIds, Dates: toClear.Dates, Halves: toClear.Halves})
+			_, err := q.DeleteMarks(r.Context(), db.DeleteMarksParams{NiatIds: toClear.NiatIds, Dates: toClear.Dates})
 			return err
 		}
 		return nil

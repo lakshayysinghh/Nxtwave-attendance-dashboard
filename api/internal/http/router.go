@@ -28,8 +28,6 @@ type Deps struct {
 	AppBaseURL    string
 	SecureCookies bool
 	Location      *time.Location // Asia/Kolkata
-	// DevLogin routes POST /api/auth/dev-login (development only).
-	DevLogin bool
 }
 
 type Server struct {
@@ -41,7 +39,6 @@ type Server struct {
 	appBaseURL    string
 	secureCookies bool
 	loc           *time.Location
-	devLogin      bool
 	now           func() time.Time
 }
 
@@ -55,7 +52,6 @@ func NewServer(d Deps) *Server {
 		appBaseURL:    d.AppBaseURL,
 		secureCookies: d.SecureCookies,
 		loc:           d.Location,
-		devLogin:      d.DevLogin,
 		now:           time.Now,
 	}
 }
@@ -77,9 +73,6 @@ func (s *Server) Routes() http.Handler {
 			}
 			r.With(RateLimitByIP(10, time.Minute)).Post("/login", s.handleLogin)
 			r.Post("/logout", s.handleLogout)
-			if s.devLogin {
-				r.Post("/dev-login", s.handleDevLogin)
-			}
 			r.With(s.requireAdmin).Get("/me", s.handleMe)
 			r.With(RateLimitByIP(10, time.Minute), s.requireAdmin).Post("/password", s.handleChangePassword)
 		})

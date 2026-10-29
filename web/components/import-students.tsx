@@ -50,7 +50,7 @@ export function ImportStudents() {
   const save = useMutation({
     mutationFn: () => importStudents(file!, { commit: true, skipErrors, columnDates }),
     onSuccess: (res) => {
-      const marks = res.attendance ? ` Saved ${res.attendance.saved} half-day mark(s) for ${res.attendance.summary.students_affected} student(s).` : "";
+      const marks = res.attendance ? ` Saved ${res.attendance.saved} mark(s) for ${res.attendance.summary.students_affected} student(s).` : "";
       setDone(
         `Imported ${res.file_name}: ${res.summary.new} new, ${res.summary.updated} updated${res.summary.errors ? `, ${res.summary.errors} row(s) with errors skipped` : ""}.${marks}`,
       );

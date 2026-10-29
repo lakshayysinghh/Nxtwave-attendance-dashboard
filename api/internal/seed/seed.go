@@ -131,16 +131,14 @@ func Run(ctx context.Context, pool *pgxpool.Pool, ownerEmail string, today time.
 				if !stats.ResolveDay(d, stu, cal, terms, today).Counted {
 					continue
 				}
-				for half := int16(1); half <= 2; half++ {
-					r := rng.Float64()
-					switch {
-					case r < 0.012: // a few sessions left unmarked, to show "Not marked"
-						continue
-					case rng.Float64() < p:
-						batch.add(s.NiatID, d, half, "P")
-					default:
-						batch.add(s.NiatID, d, half, "A")
-					}
+				r := rng.Float64()
+				switch {
+				case r < 0.012: // a few days left unmarked, to show "Not marked"
+					continue
+				case rng.Float64() < p:
+					batch.add(s.NiatID, d, "P")
+				default:
+					batch.add(s.NiatID, d, "A")
 				}
 			}
 			if len(batch.ids) >= markBatch {
@@ -257,14 +255,12 @@ func loadRules(ctx context.Context, q *db.Queries) ([]stats.Term, stats.Calendar
 type markRows struct {
 	ids      []string
 	dates    []pgtype.Date
-	halves   []int16
 	statuses []string
 }
 
-func (m *markRows) add(id string, d time.Time, half int16, status string) {
+func (m *markRows) add(id string, d time.Time, status string) {
 	m.ids = append(m.ids, id)
 	m.dates = append(m.dates, pgDate(d))
-	m.halves = append(m.halves, half)
 	m.statuses = append(m.statuses, status)
 }
 
@@ -273,7 +269,7 @@ func (m *markRows) flush(ctx context.Context, q *db.Queries) (int64, error) {
 		return 0, nil
 	}
 	n, err := q.InsertMarksIfMissing(ctx, db.InsertMarksIfMissingParams{
-		NiatIds: m.ids, Dates: m.dates, Halves: m.halves, Statuses: m.statuses,
+		NiatIds: m.ids, Dates: m.dates, Statuses: m.statuses,
 	})
 	*m = markRows{}
 	if err != nil {

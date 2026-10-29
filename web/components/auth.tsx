@@ -76,19 +76,12 @@ export function PasswordInput({
   );
 }
 
-const devTag = (
-  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-900 ring-1 ring-inset ring-amber-200">
-    Development login
-  </span>
-);
-
 export function LoginForm() {
   const router = useRouter();
   const qc = useQueryClient();
   const me = useMe();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [devEmail, setDevEmail] = useState("");
 
   useEffect(() => {
     if (me.data) router.replace("/admin");
@@ -100,7 +93,6 @@ export function LoginForm() {
     router.replace("/admin");
   };
   const login = useMutation({ mutationFn: () => api.login(email.trim(), password), onSuccess: done });
-  const devLogin = useMutation({ mutationFn: () => api.devLogin(devEmail.trim()) as Promise<Me>, onSuccess: done });
   const missing = !email.trim() || !password;
 
   return (
@@ -136,30 +128,6 @@ export function LoginForm() {
               </p>
             )}
           </form>
-
-          <details className="rounded-md border border-dashed border-amber-300 px-3 py-2 text-sm">
-            <summary className="cursor-pointer select-none">
-              {devTag} <span className="text-muted-foreground">local demo only</span>
-            </summary>
-            <form
-              className="mt-3 flex flex-col gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                devLogin.mutate();
-              }}
-            >
-              <span className="text-xs text-muted-foreground">No password. Works only when the API runs with APP_ENV=development and DEV_LOGIN=true.</span>
-              <input className={inputCls} type="email" value={devEmail} onChange={(e) => setDevEmail(e.target.value)} placeholder="admin@demo.local" aria-label="Development login email" />
-              <Button type="submit" variant="outline" disabled={!devEmail.trim() || devLogin.isPending}>
-                Development sign-in
-              </Button>
-              {devLogin.error && (
-                <p className="text-sm text-red-700">
-                  {devLogin.error instanceof ApiError && devLogin.error.status === 404 ? "Development login is turned off." : devLogin.error.message}
-                </p>
-              )}
-            </form>
-          </details>
         </CardContent>
       </Card>
     </div>

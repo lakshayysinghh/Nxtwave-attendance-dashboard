@@ -82,12 +82,7 @@ func (s *Server) loadMarks(ctx context.Context, ids []string, from, to time.Time
 		if out[m.NiatID] == nil {
 			out[m.NiatID] = stats.Marks{}
 		}
-		k := stats.DateKey(m.Date.Time)
-		h := out[m.NiatID][k]
-		if m.Half == 1 || m.Half == 2 {
-			h[m.Half-1] = statusFromDB(m.Status)
-		}
-		out[m.NiatID][k] = h
+		out[m.NiatID][stats.DateKey(m.Date.Time)] = statusFromDB(m.Status)
 	}
 	return out, nil
 }
@@ -102,7 +97,7 @@ func statusFromDB(s string) stats.Status {
 	return stats.NotMarked
 }
 
-// markJSON is a session mark on the wire: "P", "A" or null.
+// markJSON is a day's mark on the wire: "P", "A" or null.
 func markJSON(st stats.Status) *string {
 	var v string
 	switch st {

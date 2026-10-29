@@ -113,10 +113,6 @@ func serve(log *slog.Logger, cfg config.Config) error {
 		log.Warn("Google sign-in is not configured; /api/auth/google/login will answer 503")
 	}
 
-	if cfg.DevLogin {
-		log.Warn("DEV_LOGIN is on: POST /api/auth/dev-login signs in any active admin by email. Development only.")
-	}
-
 	srv := &http.Server{
 		Addr: ":" + cfg.Port,
 		Handler: apihttp.NewServer(apihttp.Deps{
@@ -128,7 +124,6 @@ func serve(log *slog.Logger, cfg config.Config) error {
 			AppBaseURL:    cfg.AppBaseURL,
 			SecureCookies: cfg.SecureCookies(),
 			Location:      ist,
-			DevLogin:      cfg.DevLogin,
 		}).Routes(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

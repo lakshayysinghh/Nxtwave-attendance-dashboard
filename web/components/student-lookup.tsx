@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { DayStatus, Legend, MarkChip, PctBadge, TermRange, bandInfo, fmtDate, fmtDay, fmtMonth } from "@/components/attendance-ui";
+import { Legend, MarkChip, PctBadge, TermRange, bandInfo, fmtDate, fmtDay, fmtMonth } from "@/components/attendance-ui";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, pctText, type Month, type MonthDay, type Profile } from "@/lib/api";
@@ -143,7 +143,7 @@ export function StudentProfile({
         <Tile label="Working days so far" value={p.summary.counted_days} />
         <Tile label="Days present" value={p.summary.days_attended} tone="text-green-700" />
         <Tile label="Days absent" value={p.summary.days_absent} tone="text-red-700" />
-        <Tile label="Not marked (sessions)" value={p.summary.not_marked_sessions} tone="text-slate-600" />
+        <Tile label="Days not marked" value={p.summary.not_marked_days} tone="text-slate-600" />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-5">
@@ -205,14 +205,7 @@ export function StudentProfile({
                 <li key={d.date} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 text-sm">
                   <span className="w-28 font-medium">{fmtDay(d.date)}</span>
                   {d.counted ? (
-                    <>
-                      <span className="w-28">
-                        <DayStatus fh={d.fh} sh={d.sh} />
-                      </span>
-                      <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-                        FH <MarkChip mark={d.fh} short /> SH <MarkChip mark={d.sh} short />
-                      </span>
-                    </>
+                    <MarkChip mark={d.status} />
                   ) : (
                     <span className="text-xs text-muted-foreground italic">{nonCountedText(d)}</span>
                   )}

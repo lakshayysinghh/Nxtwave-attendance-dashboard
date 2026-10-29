@@ -1,5 +1,5 @@
-// Package stats is the only home of business rules: day resolution, half-day
-// sessions, percentages and day labels. It is pure Go with no HTTP or
+// Package stats is the only home of business rules: day resolution, one
+// attendance mark per day, and percentages. It is pure Go with no HTTP or
 // database access, so every rule is covered by table-driven tests.
 //
 // Dates are calendar dates in Asia/Kolkata, represented as time.Time at
@@ -163,7 +163,7 @@ func inAnyTerm(d time.Time, terms []Term) bool {
 	return false
 }
 
-// Status is one session's mark.
+// Status is one day's mark.
 type Status uint8
 
 const (
@@ -172,67 +172,34 @@ const (
 	Absent
 )
 
-// Halves are the First half (index 0) and Second half (index 1) marks of a day.
-type Halves [2]Status
+// Marks maps DateKey to a student's mark for that day.
+type Marks map[string]Status
 
-// Marks maps DateKey to a student's marks for that day.
-type Marks map[string]Halves
-
-// DayLabel summarises a counted day's two halves.
-type DayLabel string
-
-const (
-	LabelPresent      DayLabel = "present"
-	LabelHalfDay      DayLabel = "half_day"
-	LabelAbsent       DayLabel = "absent"
-	LabelPartlyMarked DayLabel = "partly_marked"
-	LabelNotMarked    DayLabel = "not_marked"
-)
-
-func LabelFor(h Halves) DayLabel {
-	switch {
-	case h[0] == Present && h[1] == Present:
-		return LabelPresent
-	case h[0] == Absent && h[1] == Absent:
-		return LabelAbsent
-	case h[0] != NotMarked && h[1] != NotMarked:
-		return LabelHalfDay
-	case h[0] != NotMarked || h[1] != NotMarked:
-		return LabelPartlyMarked
-	default:
-		return LabelNotMarked
-	}
-}
-
-// Summary counts sessions (two per counted day) over a period.
+// Summary counts a student's counted days over a period.
 type Summary struct {
-	CountedDays  int      `json:"counted_days"`
-	Present      int      `json:"present_sessions"`
-	Absent       int      `json:"absent_sessions"`
-	NotMarked    int      `json:"not_marked_sessions"`
-	Pct          *float64 `json:"pct"`           // nil when nothing is marked ("–")
-	DaysAttended float64  `json:"days_attended"` // present sessions ÷ 2
-	DaysAbsent   float64  `json:"days_absent"`   // absent sessions ÷ 2
-	Band         Band     `json:"band"`
+	CountedDays int      `json:"counted_days"`
+	Present     int      `json:"days_attended"`
+	Absent      int      `json:"days_absent"`
+	NotMarked   int      `json:"not_marked_days"`
+	Pct         *float64 `json:"pct"` // nil when nothing is marked ("–")
+	Band        Band     `json:"band"`
 }
 
-func (s *Summary) add(h Halves) {
+func (s *Summary) add(st Status) {
 	s.CountedDays++
-	for _, st := range h {
-		switch st {
-		case Present:
-			s.Present++
-		case Absent:
-			s.Absent++
-		default:
-			s.NotMarked++
-		}
+	switch st {
+	case Present:
+		s.Present++
+	case Absent:
+		s.Absent++
+	default:
+		s.NotMarked++
 	}
 }
 
+// finish sets the % = present ÷ (present + absent) × 100, to one decimal.
+// Unmarked days are left out, so a blank never counts as absent.
 func (s *Summary) finish() {
-	s.DaysAttended = float64(s.Present) / 2
-	s.DaysAbsent = float64(s.Absent) / 2
 	if marked := s.Present + s.Absent; marked > 0 {
 		p := math.Round(float64(s.Present)*1000/float64(marked)) / 10
 		s.Pct = &p
@@ -240,7 +207,7 @@ func (s *Summary) finish() {
 	s.Band = BandOf(s.Pct)
 }
 
-// Summarize counts sessions on the student's counted days from..to inclusive.
+// Summarize counts the student's counted days from..to inclusive.
 // Marks on days that do not count are ignored.
 func Summarize(s Student, from, to time.Time, cal Calendar, terms []Term, marks Marks, today time.Time) Summary {
 	var sum Summary
@@ -275,11 +242,11 @@ func Months(s Student, term Term, cal Calendar, terms []Term, marks Marks, today
 	return out
 }
 
-// DayDetail is one calendar day for a student, with its marks.
+// DayDetail is one calendar day for a student, with its mark (NotMarked on
+// days that do not count).
 type DayDetail struct {
 	Day
-	Halves   Halves
-	DayLabel DayLabel // empty on days that do not count
+	Status Status
 }
 
 // MonthDays resolves every day of month m (any date in it) for the student.
@@ -290,8 +257,7 @@ func MonthDays(s Student, m time.Time, cal Calendar, terms []Term, marks Marks, 
 		day := ResolveDay(d, s, cal, terms, today)
 		det := DayDetail{Day: day}
 		if day.Counted {
-			det.Halves = marks[DateKey(d)]
-			det.DayLabel = LabelFor(det.Halves)
+			det.Status = marks[DateKey(d)]
 		}
 		out = append(out, det)
 	}

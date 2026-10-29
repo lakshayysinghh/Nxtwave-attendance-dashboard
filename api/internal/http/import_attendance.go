@@ -23,7 +23,7 @@ type attendanceImportRow struct {
 	NiatID    string   `json:"niat_id"`
 	Name      string   `json:"name"`
 	Status    string   `json:"status"`  // update, unchanged, error
-	Changes   int      `json:"changes"` // half-day records that will be written
+	Changes   int      `json:"changes"` // days whose mark will be written
 	Unchanged int      `json:"unchanged"`
 	Blank     int      `json:"blank"`
 	Skipped   []string `json:"skipped"` // cells that will not be saved, with the reason
@@ -66,8 +66,8 @@ type attendanceImportResponse struct {
 // POST /api/admin/imports/attendance (multipart field "file", optional
 // field "column_dates": JSON {"<column>": "YYYY-MM-DD"} for unreadable date
 // headers). Without commit=true it only previews. With commit=true it writes
-// every changed half-day record in one transaction. A Present/Absent cell
-// sets both halves (FH and SH); a blank cell changes nothing; any other value
+// every changed mark in one transaction. A Present/Absent cell sets that
+// day's mark; a blank cell changes nothing; any other value
 // is skipped for that cell only. Errors (unknown NIAT IDs, repeated dates,
 // undated columns) block the save unless skip_errors=true, which leaves out
 // those rows and columns.
@@ -163,7 +163,7 @@ func parseColumnDates(raw string) (map[int]time.Time, error) {
 }
 
 // previewAttendance checks every row against stored students, the calendar
-// and existing marks, and collects the half-day records that would change.
+// and existing marks, and collects the marks that would change.
 // Error rows contribute no changes. pending holds students from the same
 // upload that are not saved yet (the combined Students import); they take
 // precedence over stored rows. It may be nil.
@@ -248,17 +248,13 @@ func (s *Server) previewAttendance(r *http.Request, fileName string, sheet impor
 					out.Skipped = append(out.Skipped, notCountedReason(day))
 					continue
 				}
-				saved := marks[row.NiatID][key]
-				for half := int16(1); half <= 2; half++ {
-					if markString(saved[half-1]) == c.Status {
-						out.Unchanged++
-						continue
-					}
-					rowChanges.NiatIds = append(rowChanges.NiatIds, row.NiatID)
-					rowChanges.Dates = append(rowChanges.Dates, pgDate(c.Date))
-					rowChanges.Halves = append(rowChanges.Halves, half)
-					rowChanges.Statuses = append(rowChanges.Statuses, c.Status)
+				if markString(marks[row.NiatID][key]) == c.Status {
+					out.Unchanged++
+					continue
 				}
+				rowChanges.NiatIds = append(rowChanges.NiatIds, row.NiatID)
+				rowChanges.Dates = append(rowChanges.Dates, pgDate(c.Date))
+				rowChanges.Statuses = append(rowChanges.Statuses, c.Status)
 			}
 		}
 
@@ -272,7 +268,6 @@ func (s *Server) previewAttendance(r *http.Request, fileName string, sheet impor
 			resp.Summary.StudentsAffected++
 			changes.NiatIds = append(changes.NiatIds, rowChanges.NiatIds...)
 			changes.Dates = append(changes.Dates, rowChanges.Dates...)
-			changes.Halves = append(changes.Halves, rowChanges.Halves...)
 			changes.Statuses = append(changes.Statuses, rowChanges.Statuses...)
 		default:
 			out.Status = "unchanged"

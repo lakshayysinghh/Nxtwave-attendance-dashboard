@@ -26,7 +26,6 @@ type Attendance struct {
 	Status    string             `json:"status"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 	UpdatedBy pgtype.Int8        `json:"updated_by"`
-	Half      int16              `json:"half"`
 }
 
 type CalendarDay struct {

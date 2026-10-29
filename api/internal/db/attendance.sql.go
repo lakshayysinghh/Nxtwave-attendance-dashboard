@@ -26,19 +26,17 @@ func (q *Queries) DeleteDemoMarks(ctx context.Context) (int64, error) {
 const deleteMarks = `-- name: DeleteMarks :execrows
 DELETE FROM attendance a
 USING (SELECT unnest($1::text[]) AS niat_id,
-              unnest($2::date[]) AS date,
-              unnest($3::smallint[]) AS half) d
-WHERE a.niat_id = d.niat_id AND a.date = d.date AND a.half = d.half
+              unnest($2::date[]) AS date) d
+WHERE a.niat_id = d.niat_id AND a.date = d.date
 `
 
 type DeleteMarksParams struct {
 	NiatIds []string      `json:"niat_ids"`
 	Dates   []pgtype.Date `json:"dates"`
-	Halves  []int16       `json:"halves"`
 }
 
 func (q *Queries) DeleteMarks(ctx context.Context, arg DeleteMarksParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteMarks, arg.NiatIds, arg.Dates, arg.Halves)
+	result, err := q.db.Exec(ctx, deleteMarks, arg.NiatIds, arg.Dates)
 	if err != nil {
 		return 0, err
 	}
@@ -46,27 +44,20 @@ func (q *Queries) DeleteMarks(ctx context.Context, arg DeleteMarksParams) (int64
 }
 
 const insertMarksIfMissing = `-- name: InsertMarksIfMissing :execrows
-INSERT INTO attendance (niat_id, date, half, status)
-SELECT unnest($1::text[]), unnest($2::date[]),
-       unnest($3::smallint[]), unnest($4::text[])
-ON CONFLICT (niat_id, date, half) DO NOTHING
+INSERT INTO attendance (niat_id, date, status)
+SELECT unnest($1::text[]), unnest($2::date[]), unnest($3::text[])
+ON CONFLICT (niat_id, date) DO NOTHING
 `
 
 type InsertMarksIfMissingParams struct {
 	NiatIds  []string      `json:"niat_ids"`
 	Dates    []pgtype.Date `json:"dates"`
-	Halves   []int16       `json:"halves"`
 	Statuses []string      `json:"statuses"`
 }
 
 // Seed only: keeps any mark that already exists.
 func (q *Queries) InsertMarksIfMissing(ctx context.Context, arg InsertMarksIfMissingParams) (int64, error) {
-	result, err := q.db.Exec(ctx, insertMarksIfMissing,
-		arg.NiatIds,
-		arg.Dates,
-		arg.Halves,
-		arg.Statuses,
-	)
+	result, err := q.db.Exec(ctx, insertMarksIfMissing, arg.NiatIds, arg.Dates, arg.Statuses)
 	if err != nil {
 		return 0, err
 	}
@@ -74,10 +65,10 @@ func (q *Queries) InsertMarksIfMissing(ctx context.Context, arg InsertMarksIfMis
 }
 
 const listMarks = `-- name: ListMarks :many
-SELECT niat_id, date, half, status FROM attendance
+SELECT niat_id, date, status FROM attendance
 WHERE niat_id = ANY($1::text[])
   AND date BETWEEN $2::date AND $3::date
-ORDER BY niat_id, date, half
+ORDER BY niat_id, date
 `
 
 type ListMarksParams struct {
@@ -89,7 +80,6 @@ type ListMarksParams struct {
 type ListMarksRow struct {
 	NiatID string      `json:"niat_id"`
 	Date   pgtype.Date `json:"date"`
-	Half   int16       `json:"half"`
 	Status string      `json:"status"`
 }
 
@@ -102,12 +92,7 @@ func (q *Queries) ListMarks(ctx context.Context, arg ListMarksParams) ([]ListMar
 	var items []ListMarksRow
 	for rows.Next() {
 		var i ListMarksRow
-		if err := rows.Scan(
-			&i.NiatID,
-			&i.Date,
-			&i.Half,
-			&i.Status,
-		); err != nil {
+		if err := rows.Scan(&i.NiatID, &i.Date, &i.Status); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -119,18 +104,16 @@ func (q *Queries) ListMarks(ctx context.Context, arg ListMarksParams) ([]ListMar
 }
 
 const upsertMarks = `-- name: UpsertMarks :execrows
-INSERT INTO attendance (niat_id, date, half, status, updated_at, updated_by)
-SELECT unnest($1::text[]), unnest($2::date[]),
-       unnest($3::smallint[]), unnest($4::text[]),
-       now(), $5::bigint
-ON CONFLICT (niat_id, date, half) DO UPDATE
+INSERT INTO attendance (niat_id, date, status, updated_at, updated_by)
+SELECT unnest($1::text[]), unnest($2::date[]), unnest($3::text[]),
+       now(), $4::bigint
+ON CONFLICT (niat_id, date) DO UPDATE
 SET status = EXCLUDED.status, updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by
 `
 
 type UpsertMarksParams struct {
 	NiatIds   []string      `json:"niat_ids"`
 	Dates     []pgtype.Date `json:"dates"`
-	Halves    []int16       `json:"halves"`
 	Statuses  []string      `json:"statuses"`
 	UpdatedBy int64         `json:"updated_by"`
 }
@@ -139,7 +122,6 @@ func (q *Queries) UpsertMarks(ctx context.Context, arg UpsertMarksParams) (int64
 	result, err := q.db.Exec(ctx, upsertMarks,
 		arg.NiatIds,
 		arg.Dates,
-		arg.Halves,
 		arg.Statuses,
 		arg.UpdatedBy,
 	)

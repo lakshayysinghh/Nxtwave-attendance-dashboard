@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import { PageHeading } from "@/components/admin-shell";
 import { HealthStatus } from "@/components/health-status";
 import { StudentFormCard } from "@/components/student-form";
-import { DayStatus, Legend, MarkChip, PctBadge, TermRange, bandInfo, fmtDay } from "@/components/attendance-ui";
+import { Legend, PctBadge, TermRange, bandInfo, fmtDay } from "@/components/attendance-ui";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ApiError, api, pctText, type AdminStudent, type Band, type Mark, type MarkInput } from "@/lib/api";
@@ -396,8 +396,8 @@ const choices: { value: Mark; label: string; on: string }[] = [
 ];
 
 /**
- * Whole-day marking for one hall at a time: one choice per student, saved to
- * both halves (FH and SH). The hall is kept in the URL (?hall=).
+ * Marking for one hall at a time: one mark per student for the day. The hall
+ * is kept in the URL (?hall=).
  */
 export function MarkAttendance() {
   const qc = useQueryClient();
@@ -411,10 +411,14 @@ export function MarkAttendance() {
   const sheet = useQuery({ queryKey: ["sheet", date, hall], queryFn: () => api.sheet(date, hall ?? ""), enabled: hall !== undefined });
   const [edits, setEdits] = useState<Record<string, Mark>>({});
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [search, setSearch] = useState("");
 
   const day = sheet.data?.date ?? "";
   const rows = sheet.data?.students ?? [];
-  const markable = rows.filter((r) => r.counted);
+  const term = search.trim().toLowerCase();
+  // Search only narrows the list; edits to students not shown are kept and saved.
+  const shown = term ? rows.filter((r) => r.name.toLowerCase().includes(term) || r.niat_id.toLowerCase().includes(term)) : rows;
+  const markable = shown.filter((r) => r.counted);
   const dirty = Object.keys(edits).length > 0;
 
   useEffect(() => {
@@ -429,11 +433,11 @@ export function MarkAttendance() {
     if (dirty && !window.confirm("Discard unsaved changes?")) return;
     setEdits({});
     setMsg(null);
+    setSearch("");
     router.replace(`${pathname}?${new URLSearchParams({ hall: h })}`, { scroll: false });
   };
 
-  // The current whole-day value: an edit, else the saved mark when both halves agree.
-  const current = (id: string, fh: Mark, sh: Mark): Mark | "mixed" => (id in edits ? edits[id] : fh === sh ? fh : "mixed");
+  const current = (id: string, saved: Mark): Mark => (id in edits ? edits[id] : saved);
 
   const save = useMutation({
     mutationFn: () => {
@@ -441,8 +445,7 @@ export function MarkAttendance() {
       for (const r of rows) {
         if (!(r.niat_id in edits)) continue;
         const v = edits[r.niat_id];
-        if (r.fh !== v) marks.push({ niat_id: r.niat_id, date: day, half: 1, status: v });
-        if (r.sh !== v) marks.push({ niat_id: r.niat_id, date: day, half: 2, status: v });
+        if (r.status !== v) marks.push({ niat_id: r.niat_id, date: day, status: v });
       }
       return api.saveMarks(marks);
     },
@@ -463,7 +466,7 @@ export function MarkAttendance() {
       <CardHeader>
         <CardTitle>Mark attendance</CardTitle>
         <CardDescription>
-          Pick a hall, then mark its students. Whole-day marking: the choice is saved for both halves (FH – First half, SH – Second half).
+          Pick a hall, then mark each student Present or Absent for the day.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -515,7 +518,7 @@ export function MarkAttendance() {
                 disabled={!markable.length}
                 onClick={() => setEdits((e) => ({ ...e, ...Object.fromEntries(markable.map((r) => [r.niat_id, "P" as Mark])) }))}
               >
-                Mark all present
+                {term ? `Mark ${markable.length} shown present` : "Mark all present"}
               </Button>
               <Button variant="outline" disabled={!dirty} onClick={() => setEdits({})}>
                 Undo changes
@@ -525,8 +528,16 @@ export function MarkAttendance() {
               </Button>
             </div>
 
+            <input
+              className={`${inputCls} w-full`}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={`Search ${hallLabel(hall)} by name or NIAT ID`}
+              aria-label="Search students in this hall"
+            />
             <p className="text-xs text-muted-foreground">
-              {hallLabel(hall)}: {rows.length} student{rows.length === 1 ? "" : "s"}. Names open in a new tab, so unsaved marks stay here.
+              {hallLabel(hall)}: {term ? `${shown.length} of ${rows.length}` : rows.length} student{rows.length === 1 ? "" : "s"}
+              {term && " match the search"}. Names open in a new tab, so unsaved marks stay here.
             </p>
 
             {rows.length > 0 && markable.length === 0 && (
@@ -542,8 +553,8 @@ export function MarkAttendance() {
             <Legend />
 
             <ul className="divide-y divide-border rounded-md border border-border">
-              {rows.map((r) => {
-                const cur = current(r.niat_id, r.fh, r.sh);
+              {shown.map((r) => {
+                const cur = current(r.niat_id, r.status);
                 const changed = r.niat_id in edits;
                 return (
                   <li key={r.niat_id} className={`flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center ${changed ? "bg-accent/60" : ""}`}>
@@ -553,11 +564,6 @@ export function MarkAttendance() {
                       </Link>
                       <div className="flex flex-wrap items-center gap-1 font-mono text-xs text-muted-foreground">
                         {r.niat_id} · {r.degree} · {r.section}
-                        {!changed && cur === "mixed" && (
-                          <span className="ml-2 inline-flex items-center gap-1 font-sans">
-                            saved: <DayStatus fh={r.fh} sh={r.sh} /> FH <MarkChip mark={r.fh} short /> SH <MarkChip mark={r.sh} short />
-                          </span>
-                        )}
                       </div>
                     </div>
                     {r.counted ? (
@@ -584,6 +590,7 @@ export function MarkAttendance() {
                 );
               })}
             </ul>
+            {term && shown.length === 0 && <p className="text-sm text-muted-foreground">No student in {hallLabel(hall)} matches “{search.trim()}”.</p>}
           </>
         )}
       </CardContent>

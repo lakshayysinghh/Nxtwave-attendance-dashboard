@@ -57,7 +57,7 @@ export function ImportAttendance() {
   const save = useMutation({
     mutationFn: () => importAttendance(file!, { commit: true, skipErrors, columnDates }),
     onSuccess: (res) => {
-      setDone(`Imported ${res.file_name}: saved ${res.saved} half-day mark(s) for ${res.summary.students_affected} student(s).`);
+      setDone(`Imported ${res.file_name}: saved ${res.saved} mark(s) for ${res.summary.students_affected} student(s).`);
       reset();
       for (const key of markQueryKeys) qc.invalidateQueries({ queryKey: [key] });
     },
@@ -74,7 +74,7 @@ export function ImportAttendance() {
         <CardDescription>
           For sheets with attendance only: a sheet that also has the student columns can go to Import students, which saves both.
           Upload a .xlsx or .csv file (max 10 MB) with a NIAT ID column and one column per date (19-Aug-2026, 19-Aug-26, 19/08/2026 or
-          2026-08-19). Values: Present, Absent, P, A, 1 or 0. Each value marks the whole day (both FH and SH). Blank cells change
+          2026-08-19). Values: Present, Absent, P, A, 1 or 0. Each value is the mark for that day. Blank cells change
           nothing; any other value is skipped for that cell only.{" "}
           <a href="/sample-attendance.csv" download className="font-medium text-primary underline">
             Download sample CSV
@@ -181,7 +181,6 @@ export function AttendancePreview({
         <Count label="Skipped cells" n={s.skipped_cells} cls="bg-amber-50 text-amber-800 ring-amber-200" />
         <Count label="Error rows" n={s.error_rows} cls="bg-red-50 text-red-800 ring-red-200" />
       </div>
-      <p className="text-xs text-muted-foreground">A record is one half-day mark (FH or SH); each Present/Absent cell sets both.</p>
 
       {preview.bad_columns.map((c) => (
         <BadColumnPicker key={`${c.column}-${c.suggested}`} col={c} onUse={(d) => onColumnDates({ ...columnDates, [c.column]: d })} />

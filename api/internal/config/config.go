@@ -29,8 +29,6 @@ type Config struct {
 	GoogleClientID     string
 	GoogleClientSecret string
 	OwnerEmail         string
-	// DevLogin enables POST /api/auth/dev-login. Only allowed when Env is development.
-	DevLogin bool
 }
 
 func (c Config) IsProduction() bool { return c.Env == "production" }
@@ -65,13 +63,9 @@ func fromEnv(env string, getenv func(string) string) (Config, error) {
 		GoogleClientID:     get("GOOGLE_CLIENT_ID"),
 		GoogleClientSecret: get("GOOGLE_CLIENT_SECRET"),
 		OwnerEmail:         strings.ToLower(get("OWNER_EMAIL")),
-		DevLogin:           strings.EqualFold(get("DEV_LOGIN"), "true"),
 	}
 	if cfg.Port == "" {
 		cfg.Port = "8080"
-	}
-	if cfg.DevLogin && cfg.Env != "development" {
-		return Config{}, fmt.Errorf("DEV_LOGIN=true is only allowed when APP_ENV=development (APP_ENV is %q)", cfg.Env)
 	}
 
 	if cfg.IsProduction() {

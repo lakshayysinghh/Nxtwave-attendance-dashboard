@@ -10,12 +10,10 @@ export type Mark = "P" | "A" | null;
 
 export type Summary = {
   counted_days: number;
-  present_sessions: number;
-  absent_sessions: number;
-  not_marked_sessions: number;
-  pct: number | null;
   days_attended: number;
   days_absent: number;
+  not_marked_days: number;
+  pct: number | null;
   band: Band;
 };
 
@@ -51,9 +49,7 @@ export type MonthDay = {
   label: string;
   excluded: string;
   counted: boolean;
-  fh: Mark;
-  sh: Mark;
-  day_label: string;
+  status: Mark;
 };
 
 export type Month = { month: string; today: string; days: MonthDay[]; summary: Summary };
@@ -92,11 +88,10 @@ export type SheetRow = {
   hall_no: string;
   counted: boolean;
   reason: string;
-  fh: Mark;
-  sh: Mark;
+  status: Mark;
 };
 
-export type MarkInput = { niat_id: string; date: string; half: 1 | 2; status: Mark };
+export type MarkInput = { niat_id: string; date: string; status: Mark };
 
 export class ApiError extends Error {
   constructor(
@@ -129,7 +124,6 @@ export const api = {
     request<Me>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   changePassword: (current_password: string, new_password: string) =>
     request<Me>("/api/auth/password", { method: "POST", body: JSON.stringify({ current_password, new_password }) }),
-  devLogin: (email: string) => request("/api/auth/dev-login", { method: "POST", body: JSON.stringify({ email }) }),
   logout: () => fetch("/api/auth/logout", { method: "POST" }),
   students: (f: StudentFilters = {}) => {
     const qs = new URLSearchParams({ q: f.q ?? "", degree: f.degree ?? "", section: f.section ?? "" });
