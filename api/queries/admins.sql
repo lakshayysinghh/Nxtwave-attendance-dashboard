@@ -73,3 +73,16 @@ SET active = sqlc.arg(active)::boolean, role = sqlc.arg(role)::text,
     session_version = session_version + CASE WHEN sqlc.arg(active)::boolean THEN 0 ELSE 1 END
 WHERE id = sqlc.arg(id)
 RETURNING *;
+
+-- name: UpdateAdminProfile :one
+-- Owner edit of name and email. A changed email ends that admin's sessions.
+-- A taken email fails on the unique constraint.
+UPDATE admins
+SET name = sqlc.arg(name)::text, email = lower(sqlc.arg(email)::text),
+    session_version = session_version + CASE WHEN email = lower(sqlc.arg(email)::text) THEN 0 ELSE 1 END
+WHERE id = sqlc.arg(id)
+RETURNING *;
+
+-- name: DeleteAdmin :execrows
+-- Marks and imports they made keep their values; updated_by and uploaded_by become NULL.
+DELETE FROM admins WHERE id = $1;

@@ -103,23 +103,38 @@ function CreateAdmin() {
   );
 }
 
+type Panel = "none" | "reset" | "edit" | "delete";
+
 function AdminRow({ admin: a, isMe, lastOwner }: { admin: AdminAccount; isMe: boolean; lastOwner: boolean }) {
   const qc = useQueryClient();
-  const [resetting, setResetting] = useState(false);
+  const [panel, setPanel] = useState<Panel>("none");
+  const resetting = panel === "reset";
+  const toggle = (p: Panel) => setPanel((cur) => (cur === p ? "none" : p));
   const [password, setPassword] = useState("");
+  const [name, setName] = useState(a.name);
+  const [email, setEmail] = useState(a.email);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const after = (text: string) => () => {
     setMsg({ ok: true, text });
-    setResetting(false);
+    setPanel("none");
     setPassword("");
     qc.invalidateQueries({ queryKey: ["admins"] });
   };
   const onError = (e: Error) => setMsg({ ok: false, text: e.message });
   const update = useMutation({
-    mutationFn: (change: { active?: boolean; role?: "owner" | "admin" }) => adminsApi.update(a.id, change),
-    onSuccess: after("Saved."),
+    mutationFn: (change: { name?: string; email?: string; active?: boolean; role?: "owner" | "admin" }) => adminsApi.update(a.id, change),
+    onSuccess: (_, change) => {
+      after(change.email && change.email !== a.email && !isMe ? "Saved. The email changed, so they were signed out and must sign in with the new email." : "Saved.")();
+      if (isMe) qc.invalidateQueries(); // your own name or email shows in the top bar
+    },
     onError,
   });
+  const remove = useMutation({
+    mutationFn: () => adminsApi.remove(a.id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admins"] }),
+    onError,
+  });
+  const emailChanged = email.trim().toLowerCase() !== a.email;
   const reset = useMutation({
     mutationFn: () => adminsApi.resetPassword(a.id, password),
     onSuccess: after(isMe ? "Password replaced." : "Password replaced. Their sessions ended; they must choose a new password at next sign-in."),
@@ -145,7 +160,18 @@ function AdminRow({ admin: a, isMe, lastOwner }: { admin: AdminAccount; isMe: bo
         {a.must_change_password && <span className="text-xs text-muted-foreground">Must change password</span>}
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" onClick={() => setResetting((r) => !r)}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setName(a.name);
+            setEmail(a.email);
+            toggle("edit");
+          }}
+        >
+          {panel === "edit" ? "Cancel edit" : "Edit"}
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => toggle("reset")}>
           {resetting ? "Cancel reset" : "Reset password"}
         </Button>
         <Button variant="outline" size="sm" disabled={update.isPending || (a.active && lastOwner)} onClick={() => update.mutate({ active: !a.active })}>
@@ -159,8 +185,63 @@ function AdminRow({ admin: a, isMe, lastOwner }: { admin: AdminAccount; isMe: bo
         >
           {a.role === "owner" ? "Make regular admin" : "Make Owner"}
         </Button>
-        {lastOwner && <span className="self-center text-xs text-muted-foreground">Only active Owner: cannot be deactivated or demoted.</span>}
+        {!isMe && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-red-700 hover:bg-red-50 hover:text-red-800"
+            disabled={lastOwner}
+            onClick={() => toggle("delete")}
+          >
+            {panel === "delete" ? "Cancel delete" : "Delete"}
+          </Button>
+        )}
+        {lastOwner && <span className="self-center text-xs text-muted-foreground">Only active Owner: cannot be deactivated, demoted or deleted.</span>}
       </div>
+      {panel === "edit" && (
+        <form
+          className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
+          onSubmit={(e) => {
+            e.preventDefault();
+            update.mutate({ name, email });
+          }}
+        >
+          <label className="flex flex-col gap-1 text-xs font-medium">
+            Name
+            <input className={inputCls} value={name} maxLength={100} onChange={(e) => setName(e.target.value)} />
+          </label>
+          <label className="flex flex-col gap-1 text-xs font-medium">
+            Email
+            <input className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          </label>
+          <Button type="submit" className="h-10" disabled={!name.trim() || !email.trim() || update.isPending}>
+            Save changes
+          </Button>
+          {emailChanged && (
+            <p className="text-xs text-amber-800 sm:col-span-3">
+              {isMe ? "You will sign in with the new email from now on." : "Changing the email signs this admin out; they sign in again with the new email."}
+            </p>
+          )}
+        </form>
+      )}
+      {panel === "delete" && (
+        <div className="flex flex-col gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+          <p>
+            Delete <b>{a.name || a.email}</b> ({a.email})? They are signed out at once and can no longer sign in. Attendance they saved is
+            kept. This cannot be undone; to only block sign-in for now, use Deactivate instead.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" className="bg-red-700 text-white hover:bg-red-800" disabled={remove.isPending} onClick={() => remove.mutate()}>
+              {remove.isPending ? "Deleting…" : "Delete admin"}
+            </Button>
+            {a.active && (
+              <Button size="sm" variant="outline" disabled={update.isPending} onClick={() => update.mutate({ active: false })}>
+                Deactivate instead
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
       {resetting && (
         <form
           className="flex flex-col gap-2 sm:flex-row sm:items-end"

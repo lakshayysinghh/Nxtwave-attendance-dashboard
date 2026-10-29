@@ -16,7 +16,6 @@ const actionStyle: Record<CalendarImportRow["action"], { label: string; cls: str
 };
 const typeLabel: Record<string, string> = { working: "Working", holiday: "Holiday", exam: "Exam", event: "Event" };
 
-/** Upload a calendar sheet, preview row results, then confirm or cancel. */
 export function ImportCalendar() {
   const qc = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);

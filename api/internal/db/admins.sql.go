@@ -40,6 +40,19 @@ func (q *Queries) CreateAdmin(ctx context.Context, arg CreateAdminParams) (Admin
 	return i, err
 }
 
+const deleteAdmin = `-- name: DeleteAdmin :execrows
+DELETE FROM admins WHERE id = $1
+`
+
+// Marks and imports they made keep their values; updated_by and uploaded_by become NULL.
+func (q *Queries) DeleteAdmin(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteAdmin, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const endSessions = `-- name: EndSessions :exec
 UPDATE admins SET session_version = session_version + 1 WHERE id = $1
 `
@@ -292,6 +305,39 @@ type UpdateAdminAccessParams struct {
 
 func (q *Queries) UpdateAdminAccess(ctx context.Context, arg UpdateAdminAccessParams) (Admin, error) {
 	row := q.db.QueryRow(ctx, updateAdminAccess, arg.Active, arg.Role, arg.ID)
+	var i Admin
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.Name,
+		&i.Role,
+		&i.Active,
+		&i.CreatedAt,
+		&i.PasswordHash,
+		&i.SessionVersion,
+		&i.MustChangePassword,
+	)
+	return i, err
+}
+
+const updateAdminProfile = `-- name: UpdateAdminProfile :one
+UPDATE admins
+SET name = $1::text, email = lower($2::text),
+    session_version = session_version + CASE WHEN email = lower($2::text) THEN 0 ELSE 1 END
+WHERE id = $3
+RETURNING id, email, name, role, active, created_at, password_hash, session_version, must_change_password
+`
+
+type UpdateAdminProfileParams struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+	ID    int64  `json:"id"`
+}
+
+// Owner edit of name and email. A changed email ends that admin's sessions.
+// A taken email fails on the unique constraint.
+func (q *Queries) UpdateAdminProfile(ctx context.Context, arg UpdateAdminProfileParams) (Admin, error) {
+	row := q.db.QueryRow(ctx, updateAdminProfile, arg.Name, arg.Email, arg.ID)
 	var i Admin
 	err := row.Scan(
 		&i.ID,

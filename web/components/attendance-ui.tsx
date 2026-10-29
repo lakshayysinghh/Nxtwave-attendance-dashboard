@@ -3,7 +3,7 @@ import Link from "next/link";
 
 import type { Band, Mark, Term } from "@/lib/api";
 
-export function SiteHeader({ active }: { active: "student" | "admin" }) {
+export function SiteHeader({ active }: { active?: "student" | "admin" }) {
   const link = (href: string, label: string, on: boolean) => (
     <Link
       href={href}
@@ -21,7 +21,7 @@ export function SiteHeader({ active }: { active: "student" | "admin" }) {
           <span className="font-semibold tracking-tight">Attendance Dashboard</span>
         </Link>
         <nav className="flex gap-1">
-          {link("/", "Student view", active === "student")}
+          {link("/student", "Student", active === "student")}
           {link("/admin", "Admin", active === "admin")}
         </nav>
       </div>
@@ -29,7 +29,7 @@ export function SiteHeader({ active }: { active: "student" | "admin" }) {
   );
 }
 
-export function PageShell({ active, children }: { active: "student" | "admin"; children: React.ReactNode }) {
+export function PageShell({ active, children }: { active?: "student" | "admin"; children: React.ReactNode }) {
   return (
     <>
       <SiteHeader active={active} />

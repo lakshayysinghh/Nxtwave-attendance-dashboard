@@ -27,7 +27,6 @@ type rules struct {
 	has   bool
 }
 
-// loadRules loads all terms and the calendar entries between from and to.
 func (s *Server) loadRules(ctx context.Context, from, to time.Time) (rules, error) {
 	r := rules{today: stats.TodayIST(s.now())}
 	dbTerms, err := s.store.ListTerms(ctx)
@@ -73,7 +72,6 @@ func statsStudent(degree, status string, joinedOn, droppedOn pgtype.Date) stats.
 	return st
 }
 
-// loadMarks returns each student's marks between from and to.
 func (s *Server) loadMarks(ctx context.Context, ids []string, from, to time.Time) (map[string]stats.Marks, error) {
 	rows, err := s.store.ListMarks(ctx, db.ListMarksParams{NiatIds: ids, FromDate: pgDate(from), ToDate: pgDate(to)})
 	if err != nil {

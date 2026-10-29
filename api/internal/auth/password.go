@@ -9,7 +9,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// MinPasswordLength is the shortest admin password accepted.
 const MinPasswordLength = 10
 
 // bcryptCost is a variable so tests can use bcrypt.MinCost.

@@ -11,12 +11,91 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countStudentMarks = `-- name: CountStudentMarks :one
+SELECT count(*) FROM attendance WHERE niat_id = $1
+`
+
+func (q *Queries) CountStudentMarks(ctx context.Context, niatID string) (int64, error) {
+	row := q.db.QueryRow(ctx, countStudentMarks, niatID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const createStudent = `-- name: CreateStudent :one
+INSERT INTO students (niat_id, full_name, degree_code, section, level, hall_no, poc_id, coach_id, status, joined_on, dropped_on)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+ON CONFLICT (niat_id) DO NOTHING
+RETURNING niat_id, full_name, degree_code, section, level, hall_no, poc_id, coach_id, status, joined_on, dropped_on, created_at, updated_at
+`
+
+type CreateStudentParams struct {
+	NiatID     string      `json:"niat_id"`
+	FullName   string      `json:"full_name"`
+	DegreeCode string      `json:"degree_code"`
+	Section    string      `json:"section"`
+	Level      pgtype.Text `json:"level"`
+	HallNo     pgtype.Text `json:"hall_no"`
+	PocID      pgtype.Int8 `json:"poc_id"`
+	CoachID    pgtype.Int8 `json:"coach_id"`
+	Status     string      `json:"status"`
+	JoinedOn   pgtype.Date `json:"joined_on"`
+	DroppedOn  pgtype.Date `json:"dropped_on"`
+}
+
+// Admin form: add one student. Returns no row when the NIAT ID already exists.
+func (q *Queries) CreateStudent(ctx context.Context, arg CreateStudentParams) (Student, error) {
+	row := q.db.QueryRow(ctx, createStudent,
+		arg.NiatID,
+		arg.FullName,
+		arg.DegreeCode,
+		arg.Section,
+		arg.Level,
+		arg.HallNo,
+		arg.PocID,
+		arg.CoachID,
+		arg.Status,
+		arg.JoinedOn,
+		arg.DroppedOn,
+	)
+	var i Student
+	err := row.Scan(
+		&i.NiatID,
+		&i.FullName,
+		&i.DegreeCode,
+		&i.Section,
+		&i.Level,
+		&i.HallNo,
+		&i.PocID,
+		&i.CoachID,
+		&i.Status,
+		&i.JoinedOn,
+		&i.DroppedOn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const deleteDemoStudents = `-- name: DeleteDemoStudents :execrows
 DELETE FROM students WHERE niat_id LIKE 'N99%'
 `
 
 func (q *Queries) DeleteDemoStudents(ctx context.Context) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteDemoStudents)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteStudent = `-- name: DeleteStudent :execrows
+DELETE FROM students WHERE niat_id = $1
+`
+
+// Permanent: the student's attendance marks are deleted with them (ON DELETE CASCADE).
+func (q *Queries) DeleteStudent(ctx context.Context, niatID string) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteStudent, niatID)
 	if err != nil {
 		return 0, err
 	}
@@ -192,6 +271,40 @@ func (q *Queries) ListActiveStudentsInSection(ctx context.Context, arg ListActiv
 	return items, nil
 }
 
+const listHalls = `-- name: ListHalls :many
+SELECT coalesce(hall_no, '')::text AS hall, count(*) AS students
+FROM students
+WHERE status = 'active'
+GROUP BY 1
+ORDER BY 1
+`
+
+type ListHallsRow struct {
+	Hall     string `json:"hall"`
+	Students int64  `json:"students"`
+}
+
+// Active students per hall; ” is students with no hall.
+func (q *Queries) ListHalls(ctx context.Context) ([]ListHallsRow, error) {
+	rows, err := q.db.Query(ctx, listHalls)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListHallsRow
+	for rows.Next() {
+		var i ListHallsRow
+		if err := rows.Scan(&i.Hall, &i.Students); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSections = `-- name: ListSections :many
 SELECT DISTINCT degree_code, section FROM students ORDER BY degree_code, section
 `
@@ -231,13 +344,15 @@ WHERE ($1::text = ''
        OR s.niat_id LIKE upper($1::text) || '%' ESCAPE '\')
   AND ($2::text = '' OR s.degree_code = $2::text)
   AND ($3::text = '' OR s.section = $3::text)
+  AND ($4::text IS NULL OR coalesce(s.hall_no, '') = $4::text)
 ORDER BY s.degree_code, s.section, s.full_name
 `
 
 type ListStudentsForAdminParams struct {
-	Pattern string `json:"pattern"`
-	Degree  string `json:"degree"`
-	Section string `json:"section"`
+	Pattern string      `json:"pattern"`
+	Degree  string      `json:"degree"`
+	Section string      `json:"section"`
+	Hall    pgtype.Text `json:"hall"`
 }
 
 type ListStudentsForAdminRow struct {
@@ -259,8 +374,14 @@ type ListStudentsForAdminRow struct {
 }
 
 // q matches part of the name or the start of the NIAT ID; empty filters match all.
+// hall: NULL matches all; ” matches students with no hall.
 func (q *Queries) ListStudentsForAdmin(ctx context.Context, arg ListStudentsForAdminParams) ([]ListStudentsForAdminRow, error) {
-	rows, err := q.db.Query(ctx, listStudentsForAdmin, arg.Pattern, arg.Degree, arg.Section)
+	rows, err := q.db.Query(ctx, listStudentsForAdmin,
+		arg.Pattern,
+		arg.Degree,
+		arg.Section,
+		arg.Hall,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -334,6 +455,62 @@ func (q *Queries) SearchActiveStudentsByName(ctx context.Context, arg SearchActi
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateStudent = `-- name: UpdateStudent :one
+UPDATE students
+SET full_name = $2, degree_code = $3, section = $4, level = $5, hall_no = $6,
+    poc_id = $7, coach_id = $8, status = $9, joined_on = $10, dropped_on = $11, updated_at = now()
+WHERE niat_id = $1
+RETURNING niat_id, full_name, degree_code, section, level, hall_no, poc_id, coach_id, status, joined_on, dropped_on, created_at, updated_at
+`
+
+type UpdateStudentParams struct {
+	NiatID     string      `json:"niat_id"`
+	FullName   string      `json:"full_name"`
+	DegreeCode string      `json:"degree_code"`
+	Section    string      `json:"section"`
+	Level      pgtype.Text `json:"level"`
+	HallNo     pgtype.Text `json:"hall_no"`
+	PocID      pgtype.Int8 `json:"poc_id"`
+	CoachID    pgtype.Int8 `json:"coach_id"`
+	Status     string      `json:"status"`
+	JoinedOn   pgtype.Date `json:"joined_on"`
+	DroppedOn  pgtype.Date `json:"dropped_on"`
+}
+
+// Admin form: replace every editable field of one student (not the NIAT ID).
+func (q *Queries) UpdateStudent(ctx context.Context, arg UpdateStudentParams) (Student, error) {
+	row := q.db.QueryRow(ctx, updateStudent,
+		arg.NiatID,
+		arg.FullName,
+		arg.DegreeCode,
+		arg.Section,
+		arg.Level,
+		arg.HallNo,
+		arg.PocID,
+		arg.CoachID,
+		arg.Status,
+		arg.JoinedOn,
+		arg.DroppedOn,
+	)
+	var i Student
+	err := row.Scan(
+		&i.NiatID,
+		&i.FullName,
+		&i.DegreeCode,
+		&i.Section,
+		&i.Level,
+		&i.HallNo,
+		&i.PocID,
+		&i.CoachID,
+		&i.Status,
+		&i.JoinedOn,
+		&i.DroppedOn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const upsertStudentFromImport = `-- name: UpsertStudentFromImport :exec

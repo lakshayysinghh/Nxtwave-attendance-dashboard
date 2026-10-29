@@ -56,7 +56,6 @@ func holidays() []stats.CalendarEntry {
 	return h
 }
 
-// Result reports what a seed run inserted.
 type Result struct {
 	StudentsInserted int64
 	MarksInserted    int64
@@ -201,7 +200,7 @@ func demoStudents(pocIDs, coachIDs []int64) []db.InsertStudentIfMissingParams {
 					DegreeCode: d.code,
 					Section:    sec,
 					Level:      pgtype.Text{String: fmt.Sprintf("Level %d", 1+n%2), Valid: true},
-					HallNo:     pgtype.Text{String: fmt.Sprintf("H-%d", 1+si), Valid: true},
+					HallNo:     pgtype.Text{String: fmt.Sprintf("Hall %d", 1+si), Valid: true},
 					PocID:      pgtype.Int8{Int64: pocIDs[si%len(pocIDs)], Valid: true},
 					CoachID:    pgtype.Int8{Int64: coachIDs[n%len(coachIDs)], Valid: true},
 				}

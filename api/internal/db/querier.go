@@ -13,13 +13,20 @@ type Querier interface {
 	CountAttendanceBetween(ctx context.Context, arg CountAttendanceBetweenParams) (int64, error)
 	// Dates in the range that already have marks for students the entry applies to.
 	CountMarkedDatesForDegree(ctx context.Context, arg CountMarkedDatesForDegreeParams) (int64, error)
+	CountStudentMarks(ctx context.Context, niatID string) (int64, error)
 	// Returns no row when the email is already taken.
 	CreateAdmin(ctx context.Context, arg CreateAdminParams) (Admin, error)
+	// Admin form: add one student. Returns no row when the NIAT ID already exists.
+	CreateStudent(ctx context.Context, arg CreateStudentParams) (Student, error)
 	CreateTerm(ctx context.Context, arg CreateTermParams) (Term, error)
+	// Marks and imports they made keep their values; updated_by and uploaded_by become NULL.
+	DeleteAdmin(ctx context.Context, id int64) (int64, error)
 	DeleteCalendarRange(ctx context.Context, arg DeleteCalendarRangeParams) (int64, error)
 	DeleteDemoMarks(ctx context.Context) (int64, error)
 	DeleteDemoStudents(ctx context.Context) (int64, error)
 	DeleteMarks(ctx context.Context, arg DeleteMarksParams) (int64, error)
+	// Permanent: the student's attendance marks are deleted with them (ON DELETE CASCADE).
+	DeleteStudent(ctx context.Context, niatID string) (int64, error)
 	DeleteTerm(ctx context.Context, id int64) (int64, error)
 	EndSessions(ctx context.Context, id int64) error
 	GetAdminByEmail(ctx context.Context, email string) (Admin, error)
@@ -45,12 +52,15 @@ type Querier interface {
 	ListAdmins(ctx context.Context) ([]Admin, error)
 	ListCalendarDays(ctx context.Context, arg ListCalendarDaysParams) ([]CalendarDay, error)
 	ListDegrees(ctx context.Context) ([]Degree, error)
+	// Active students per hall; '' is students with no hall.
+	ListHalls(ctx context.Context) ([]ListHallsRow, error)
 	// Which degrees already have attendance on each date in the range.
 	ListMarkedDatesByDegree(ctx context.Context, arg ListMarkedDatesByDegreeParams) ([]ListMarkedDatesByDegreeRow, error)
 	ListMarks(ctx context.Context, arg ListMarksParams) ([]ListMarksRow, error)
 	ListSections(ctx context.Context) ([]ListSectionsRow, error)
 	ListSettings(ctx context.Context) ([]Setting, error)
 	// q matches part of the name or the start of the NIAT ID; empty filters match all.
+	// hall: NULL matches all; '' matches students with no hall.
 	ListStudentsForAdmin(ctx context.Context, arg ListStudentsForAdminParams) ([]ListStudentsForAdminRow, error)
 	ListTerms(ctx context.Context) ([]Term, error)
 	// Taken inside a transaction before changing any role or status, so two
@@ -70,6 +80,11 @@ type Querier interface {
 	// Owner reset (must_change = true) or own change (false). Ends existing sessions.
 	SetPasswordByID(ctx context.Context, arg SetPasswordByIDParams) (Admin, error)
 	UpdateAdminAccess(ctx context.Context, arg UpdateAdminAccessParams) (Admin, error)
+	// Owner edit of name and email. A changed email ends that admin's sessions.
+	// A taken email fails on the unique constraint.
+	UpdateAdminProfile(ctx context.Context, arg UpdateAdminProfileParams) (Admin, error)
+	// Admin form: replace every editable field of one student (not the NIAT ID).
+	UpdateStudent(ctx context.Context, arg UpdateStudentParams) (Student, error)
 	UpdateTerm(ctx context.Context, arg UpdateTermParams) (Term, error)
 	// One entry per date in the range (optionally skipping Sundays); an existing
 	// entry for the same date and applies_to is replaced.

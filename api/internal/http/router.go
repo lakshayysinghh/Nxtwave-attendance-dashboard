@@ -17,7 +17,6 @@ import (
 // Store is the sqlc Querier; *db.Queries satisfies it and unit tests use fakes.
 type Store = db.Querier
 
-// Deps are the server's collaborators.
 type Deps struct {
 	Log   *slog.Logger
 	Store Store
@@ -91,6 +90,12 @@ func (s *Server) Routes() http.Handler {
 		r.Route("/admin", func(r chi.Router) {
 			r.Use(s.requireAdmin, s.requirePasswordChanged)
 			r.Get("/students", s.handleAdminStudents)
+			r.Post("/students", s.handleCreateStudent)
+			r.Get("/students/{niat_id}", s.handleAdminStudent)
+			r.Put("/students/{niat_id}", s.handleUpdateStudent)
+			r.With(s.requireOwner).Delete("/students/{niat_id}", s.handleDeleteStudent)
+			r.Get("/students/{niat_id}/month", s.handleAdminStudentMonth)
+			r.Get("/halls", s.handleListHalls)
 			r.Get("/attendance/sheet", s.handleAdminSheet)
 			r.Put("/attendance", s.handleSaveAttendance)
 			r.Post("/imports/students", s.handleImportStudents)
@@ -109,6 +114,7 @@ func (s *Server) Routes() http.Handler {
 				r.Get("/", s.handleListAdmins)
 				r.Post("/", s.handleCreateAdmin)
 				r.Patch("/{id}", s.handleUpdateAdmin)
+				r.Delete("/{id}", s.handleDeleteAdmin)
 				r.Post("/{id}/password", s.handleResetAdminPassword)
 			})
 		})

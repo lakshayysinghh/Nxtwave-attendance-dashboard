@@ -90,7 +90,6 @@ export function LoginForm() {
   const [password, setPassword] = useState("");
   const [devEmail, setDevEmail] = useState("");
 
-  // Already signed in: go straight to the dashboard.
   useEffect(() => {
     if (me.data) router.replace("/admin");
   }, [me.data, router]);

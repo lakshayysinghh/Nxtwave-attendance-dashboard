@@ -167,7 +167,7 @@ function SideNav({ me, onNavigate }: { me: Me; onNavigate?: () => void }) {
           );
         })}
       <div className="my-2 border-t border-border" />
-      <Link href="/" onClick={onNavigate} className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-slate-600 hover:bg-muted hover:text-primary">
+      <Link href="/student" onClick={onNavigate} className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-slate-600 hover:bg-muted hover:text-primary">
         <GraduationCap className="size-4 shrink-0" />
         Student view
       </Link>
@@ -175,7 +175,6 @@ function SideNav({ me, onNavigate }: { me: Me; onNavigate?: () => void }) {
   );
 }
 
-/** Page heading used by every admin page. */
 export function PageHeading({ title, description, children }: { title: string; description?: React.ReactNode; children?: React.ReactNode }) {
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">

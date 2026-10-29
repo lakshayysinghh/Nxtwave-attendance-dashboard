@@ -15,7 +15,6 @@ import (
 // offset is exact and needs no tz database.
 var IST = time.FixedZone("IST", 5*60*60+30*60)
 
-// Date returns the calendar date y-m-d.
 func Date(y int, m time.Month, d int) time.Time {
 	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }
@@ -26,7 +25,6 @@ func TodayIST(now time.Time) time.Time {
 	return Date(y, m, d)
 }
 
-// DateKey formats a date as YYYY-MM-DD.
 func DateKey(d time.Time) string { return d.Format(time.DateOnly) }
 
 // Kind is what the calendar says about a date.
@@ -298,6 +296,19 @@ func MonthDays(s Student, m time.Time, cal Calendar, terms []Term, marks Marks, 
 		out = append(out, det)
 	}
 	return out
+}
+
+// PreviousCountedDay returns the last day before d that counts for s,
+// looking back at most 31 days; ok is false when there is none. The import
+// preview uses it to suggest the date of an unreadable date header.
+func PreviousCountedDay(d time.Time, s Student, cal Calendar, terms []Term, today time.Time) (time.Time, bool) {
+	for i := 1; i <= 31; i++ {
+		prev := d.AddDate(0, 0, -i)
+		if ResolveDay(prev, s, cal, terms, today).Counted {
+			return prev, true
+		}
+	}
+	return time.Time{}, false
 }
 
 // CurrentTerm returns the term flagged current, else the term containing

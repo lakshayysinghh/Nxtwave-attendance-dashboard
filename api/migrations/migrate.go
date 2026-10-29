@@ -14,7 +14,7 @@ import (
 type Direction string
 
 const (
-	Up      Direction = "up"       // apply all pending migrations
+	Up      Direction = "up"
 	Down    Direction = "down"     // roll back the most recent migration
 	DownAll Direction = "down-all" // roll back every migration
 )

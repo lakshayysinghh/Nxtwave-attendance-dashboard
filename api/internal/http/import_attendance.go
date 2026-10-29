@@ -1,9 +1,13 @@
 package http
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,10 +41,20 @@ type attendanceImportSummary struct {
 	ErrorRows        int `json:"error_rows"`
 }
 
+// badColumnJSON is an unreadable date header. Suggested is the last counted
+// day before the next readable column ("" when there is none); the column is
+// read only after the admin sends a date for it in column_dates.
+type badColumnJSON struct {
+	importer.BadColumn
+	Suggested string `json:"suggested"`
+}
+
 type attendanceImportResponse struct {
-	FileName     string   `json:"file_name"`
-	Dates        []string `json:"dates"` // date columns that will be read, YYYY-MM-DD
-	HeaderErrors []string `json:"header_errors"`
+	FileName       string          `json:"file_name"`
+	Dates          []string        `json:"dates"` // date columns that will be read, YYYY-MM-DD
+	BadColumns     []badColumnJSON `json:"bad_columns"`
+	HeaderErrors   []string        `json:"header_errors"`
+	HeaderWarnings []string        `json:"header_warnings"`
 	// MissingDates are suggestions for calendar entries, never applied automatically.
 	MissingDates []missingDate           `json:"missing_dates"`
 	Summary      attendanceImportSummary `json:"summary"`
@@ -49,11 +63,14 @@ type attendanceImportResponse struct {
 	Saved        int                     `json:"saved"`
 }
 
-// POST /api/admin/imports/attendance (multipart field "file").
-// Without commit=true it only previews. With commit=true it writes every
-// changed half-day record in one transaction. A Present/Absent cell sets both
-// halves (FH and SH); a blank cell changes nothing. Errors block the save
-// unless skip_errors=true, which leaves out error rows and bad columns.
+// POST /api/admin/imports/attendance (multipart field "file", optional
+// field "column_dates": JSON {"<column>": "YYYY-MM-DD"} for unreadable date
+// headers). Without commit=true it only previews. With commit=true it writes
+// every changed half-day record in one transaction. A Present/Absent cell
+// sets both halves (FH and SH); a blank cell changes nothing; any other value
+// is skipped for that cell only. Errors (unknown NIAT IDs, repeated dates,
+// undated columns) block the save unless skip_errors=true, which leaves out
+// those rows and columns.
 func (s *Server) handleImportAttendance(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, importer.MaxFileSize+1<<20)
 	file, header, err := r.FormFile("file")
@@ -65,18 +82,23 @@ func (s *Server) handleImportAttendance(w http.ResponseWriter, r *http.Request) 
 	commit := r.URL.Query().Get("commit") == "true"
 	skipErrors := r.URL.Query().Get("skip_errors") == "true"
 
+	columnDates, err := parseColumnDates(r.FormValue("column_dates"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", err.Error(), nil)
+		return
+	}
 	table, err := importer.ReadTable(file, header.Filename)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "bad_file", err.Error(), nil)
 		return
 	}
-	sheet, err := importer.ParseAttendance(table, stats.TodayIST(s.now()))
+	sheet, err := importer.ParseAttendance(table, stats.TodayIST(s.now()), columnDates)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "bad_file", err.Error(), nil)
 		return
 	}
 
-	resp, changes, err := s.previewAttendance(r, header.Filename, sheet)
+	resp, changes, err := s.previewAttendance(r, header.Filename, sheet, nil)
 	if err != nil {
 		s.internalError(w, "preview attendance import", err)
 		return
@@ -85,36 +107,72 @@ func (s *Server) handleImportAttendance(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusOK, resp)
 		return
 	}
-	if (resp.Summary.ErrorRows > 0 || len(resp.HeaderErrors) > 0) && !skipErrors {
+	if resp.hasErrors() && !skipErrors {
 		writeError(w, http.StatusUnprocessableEntity, "validation_failed",
 			"The file has errors. Fix them, or choose to skip the rows and columns with errors.", resp)
 		return
 	}
-	if len(changes.NiatIds) > 0 {
-		changes.UpdatedBy = adminFrom(r.Context()).ID
-		err = pgx.BeginFunc(r.Context(), s.pool, func(tx pgx.Tx) error {
-			n, err := db.New(tx).UpsertMarks(r.Context(), changes)
-			resp.Saved = int(n)
-			return err
-		})
-		if err != nil {
-			s.internalError(w, "save attendance import", err)
-			return
-		}
+	err = pgx.BeginFunc(r.Context(), s.pool, func(tx pgx.Tx) error {
+		return saveImportedMarks(r, db.New(tx), changes, &resp)
+	})
+	if err != nil {
+		s.internalError(w, "save attendance import", err)
+		return
 	}
 	resp.Committed = true
 	s.log.Info("attendance import committed", "admin_id", adminFrom(r.Context()).ID, "records", resp.Saved, "file", header.Filename)
 	writeJSON(w, http.StatusOK, resp)
 }
 
+func (a attendanceImportResponse) hasErrors() bool {
+	return a.Summary.ErrorRows > 0 || len(a.HeaderErrors) > 0 || len(a.BadColumns) > 0
+}
+
+func saveImportedMarks(r *http.Request, q *db.Queries, changes db.UpsertMarksParams, resp *attendanceImportResponse) error {
+	if len(changes.NiatIds) == 0 {
+		return nil
+	}
+	changes.UpdatedBy = adminFrom(r.Context()).ID
+	n, err := q.UpsertMarks(r.Context(), changes)
+	resp.Saved = int(n)
+	return err
+}
+
+// parseColumnDates reads the column_dates form field: {"<column>": "YYYY-MM-DD"}.
+func parseColumnDates(raw string) (map[int]time.Time, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	var in map[string]string
+	if err := json.Unmarshal([]byte(raw), &in); err != nil {
+		return nil, errors.New(`column_dates must be JSON like {"7": "2026-08-19"}`)
+	}
+	out := make(map[int]time.Time, len(in))
+	for k, v := range in {
+		col, err := strconv.Atoi(k)
+		if err != nil || col < 0 {
+			return nil, fmt.Errorf("column_dates: %q is not a column number", k)
+		}
+		d, err := parseDate(v)
+		if err != nil {
+			return nil, fmt.Errorf("column_dates: %w", err)
+		}
+		out[col] = d
+	}
+	return out, nil
+}
+
 // previewAttendance checks every row against stored students, the calendar
 // and existing marks, and collects the half-day records that would change.
-// Error rows contribute no changes.
-func (s *Server) previewAttendance(r *http.Request, fileName string, sheet importer.AttendanceSheet) (attendanceImportResponse, db.UpsertMarksParams, error) {
+// Error rows contribute no changes. pending holds students from the same
+// upload that are not saved yet (the combined Students import); they take
+// precedence over stored rows. It may be nil.
+func (s *Server) previewAttendance(r *http.Request, fileName string, sheet importer.AttendanceSheet, pending map[string]db.Student) (attendanceImportResponse, db.UpsertMarksParams, error) {
 	var changes db.UpsertMarksParams
-	resp := attendanceImportResponse{FileName: fileName, Dates: []string{}, HeaderErrors: sheet.HeaderErrors, Rows: []attendanceImportRow{}}
-	if resp.HeaderErrors == nil {
-		resp.HeaderErrors = []string{}
+	resp := attendanceImportResponse{
+		FileName: fileName, Dates: []string{}, BadColumns: []badColumnJSON{},
+		HeaderErrors: append([]string{}, sheet.HeaderErrors...), HeaderWarnings: append([]string{}, sheet.HeaderWarnings...),
+		Rows: []attendanceImportRow{},
 	}
 
 	rl, err := s.loadRules(r.Context(), calendarStart, calendarEnd)
@@ -152,6 +210,8 @@ func (s *Server) previewAttendance(r *http.Request, fileName string, sheet impor
 			students[st.NiatID] = st
 		}
 	}
+	maps.Copy(students, pending)
+	resp.BadColumns = suggestColumnDates(sheet, students, rl)
 	marks := map[string]stats.Marks{}
 	if len(ids) > 0 && !from.IsZero() {
 		if marks, err = s.loadMarks(r.Context(), ids, from, to); err != nil {
@@ -162,7 +222,7 @@ func (s *Server) previewAttendance(r *http.Request, fileName string, sheet impor
 	for _, row := range sheet.Rows {
 		out := attendanceImportRow{
 			Row: row.Row, NiatID: row.NiatID, Name: row.FileName, Blank: row.Blank,
-			Skipped: []string{}, Errors: append([]string{}, row.Errors...), Warnings: []string{},
+			Skipped: append([]string{}, row.Skipped...), Errors: append([]string{}, row.Errors...), Warnings: []string{},
 		}
 		st, known := students[row.NiatID]
 		if row.NiatID != "" && !known {
@@ -225,6 +285,44 @@ func (s *Server) previewAttendance(r *http.Request, fileName string, sheet impor
 	}
 	resp.Summary.Rows = len(sheet.Rows)
 	return resp, changes, nil
+}
+
+// suggestColumnDates suggests a date for each unreadable header: the last
+// day before the next readable column that counts for the sheet's students
+// (by the first known student's degree). No suggestion when there is no later
+// column or the day already has a column.
+func suggestColumnDates(sheet importer.AttendanceSheet, students map[string]db.Student, rl rules) []badColumnJSON {
+	out := make([]badColumnJSON, 0, len(sheet.BadColumns))
+	if len(sheet.BadColumns) == 0 {
+		return out
+	}
+	var stu stats.Student
+	for _, row := range sheet.Rows {
+		if st, ok := students[row.NiatID]; ok {
+			stu = stats.Student{Degree: st.DegreeCode}
+			break
+		}
+	}
+	used := map[string]bool{}
+	for _, dc := range sheet.Dates {
+		used[stats.DateKey(dc.Date)] = true
+	}
+	for _, bc := range sheet.BadColumns {
+		out = append(out, badColumnJSON{BadColumn: bc})
+		next := -1
+		for i, dc := range sheet.Dates {
+			if dc.Index > bc.Index && (next < 0 || dc.Index < sheet.Dates[next].Index) {
+				next = i
+			}
+		}
+		if next < 0 {
+			continue
+		}
+		if d, ok := stats.PreviousCountedDay(sheet.Dates[next].Date, stu, rl.cal, rl.terms, rl.today); ok && !used[stats.DateKey(d)] {
+			out[len(out)-1].Suggested = stats.DateKey(d)
+		}
+	}
+	return out
 }
 
 func markString(st stats.Status) string {

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"attendance-dashboard/api/internal/db"
 	"attendance-dashboard/api/internal/stats"
@@ -41,16 +42,34 @@ type adminRow struct {
 	Name    string        `json:"name"`
 	Degree  string        `json:"degree"`
 	Section string        `json:"section"`
+	HallNo  string        `json:"hall_no"`
 	Status  string        `json:"status"`
+	Demo    bool          `json:"demo"` // N99 seed data
 	Summary stats.Summary `json:"summary"`
 	Band    stats.Band    `json:"band"`
 }
 
-// GET /api/admin/students?q=: students matching part of a name or NIAT ID,
-// with term summaries.
+// studentFilters reads q, degree, section and hall. hall is matched only
+// when the parameter is present; "hall=" (empty) means students with no hall.
+func studentFilters(r *http.Request) db.ListStudentsForAdminParams {
+	v := r.URL.Query()
+	p := db.ListStudentsForAdminParams{
+		Pattern: likePattern(strings.TrimSpace(v.Get("q"))),
+		Degree:  strings.ToUpper(strings.TrimSpace(v.Get("degree"))),
+		Section: strings.ToUpper(strings.TrimSpace(v.Get("section"))),
+	}
+	if v.Has("hall") {
+		p.Hall = pgtype.Text{String: strings.TrimSpace(v.Get("hall")), Valid: true}
+	}
+	return p
+}
+
+func isDemoID(id string) bool { return strings.HasPrefix(id, "N99") }
+
+// GET /api/admin/students?q=&degree=&section=&hall=: students matching part
+// of a name or NIAT ID and the filters, with term summaries.
 func (s *Server) handleAdminStudents(w http.ResponseWriter, r *http.Request) {
-	q := strings.TrimSpace(r.URL.Query().Get("q"))
-	rows, err := s.store.ListStudentsForAdmin(r.Context(), db.ListStudentsForAdminParams{Pattern: likePattern(q)})
+	rows, err := s.store.ListStudentsForAdmin(r.Context(), studentFilters(r))
 	if err != nil {
 		s.internalError(w, "list students", err)
 		return
@@ -75,7 +94,8 @@ func (s *Server) handleAdminStudents(w http.ResponseWriter, r *http.Request) {
 	for i, st := range rows {
 		stu := statsStudent(st.DegreeCode, st.Status, st.JoinedOn, st.DroppedOn)
 		out[i] = adminRow{
-			NiatID: st.NiatID, Name: st.FullName, Degree: st.DegreeCode, Section: st.Section, Status: st.Status,
+			NiatID: st.NiatID, Name: st.FullName, Degree: st.DegreeCode, Section: st.Section, HallNo: optText(st.HallNo),
+			Status: st.Status, Demo: isDemoID(st.NiatID),
 			Summary: stats.Summarize(stu, from, to, rl.cal, rl.terms, marks[st.NiatID], rl.today),
 		}
 		sums[i] = out[i].Summary
@@ -91,14 +111,17 @@ type sheetRow struct {
 	NiatID  string  `json:"niat_id"`
 	Name    string  `json:"name"`
 	Degree  string  `json:"degree"`
+	Section string  `json:"section"`
+	HallNo  string  `json:"hall_no"`
 	Counted bool    `json:"counted"`
 	Reason  string  `json:"reason"` // why the day cannot be marked, when !counted
 	FH      *string `json:"fh"`
 	SH      *string `json:"sh"`
 }
 
-// GET /api/admin/attendance/sheet?date=YYYY-MM-DD (default today): every
-// active student's FH/SH marks for the date.
+// GET /api/admin/attendance/sheet?date=YYYY-MM-DD (default today)&hall=:
+// FH/SH marks for the date of every active student, or only those in one
+// hall ("hall=" with no value: students with no hall).
 func (s *Server) handleAdminSheet(w http.ResponseWriter, r *http.Request) {
 	rl, err := s.loadRules(r.Context(), calendarStart, calendarEnd)
 	if err != nil {
@@ -112,7 +135,11 @@ func (s *Server) handleAdminSheet(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	students, err := s.store.ListStudentsForAdmin(r.Context(), db.ListStudentsForAdminParams{})
+	filter := db.ListStudentsForAdminParams{}
+	if r.URL.Query().Has("hall") {
+		filter.Hall = pgtype.Text{String: strings.TrimSpace(r.URL.Query().Get("hall")), Valid: true}
+	}
+	students, err := s.store.ListStudentsForAdmin(r.Context(), filter)
 	if err != nil {
 		s.internalError(w, "list students", err)
 		return
@@ -135,7 +162,10 @@ func (s *Server) handleAdminSheet(w http.ResponseWriter, r *http.Request) {
 		}
 		day := stats.ResolveDay(date, statsStudent(st.DegreeCode, st.Status, st.JoinedOn, st.DroppedOn), rl.cal, rl.terms, rl.today)
 		h := marks[st.NiatID][stats.DateKey(date)]
-		row := sheetRow{NiatID: st.NiatID, Name: st.FullName, Degree: st.DegreeCode, Counted: day.Counted, FH: markJSON(h[0]), SH: markJSON(h[1])}
+		row := sheetRow{
+			NiatID: st.NiatID, Name: st.FullName, Degree: st.DegreeCode, Section: st.Section, HallNo: optText(st.HallNo),
+			Counted: day.Counted, FH: markJSON(h[0]), SH: markJSON(h[1]),
+		}
 		if !day.Counted {
 			row.Reason = notCountedReason(day)
 		}

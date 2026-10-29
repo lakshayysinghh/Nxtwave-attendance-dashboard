@@ -32,7 +32,6 @@ func toMe(a db.Admin) meResponse {
 	return meResponse{ID: a.ID, Email: a.Email, Name: a.Name, Role: a.Role, MustChangePassword: a.MustChangePassword}
 }
 
-// startSession sets the session cookie for admin.
 func (s *Server) startSession(w http.ResponseWriter, admin db.Admin) error {
 	token, err := s.signer.Sign(auth.PurposeSession, sessionClaims{AdminID: admin.ID, Version: admin.SessionVersion}, s.now().Add(sessionTTL))
 	if err != nil {

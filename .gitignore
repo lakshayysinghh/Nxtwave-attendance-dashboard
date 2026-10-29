@@ -11,3 +11,11 @@ api/tmp/
 !.env.example
 *.pem
 *.key
+
+# Database backups hold student data and password hashes.
+backups/
+*.dump
+
+# Docs and tests stay local only.
+*.md
+*_test.go

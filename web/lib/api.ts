@@ -24,7 +24,21 @@ export type Band = "below_60" | "60_to_75" | "75_plus" | "none";
 export type Term = { id: number; name: string; start: string; end: string } | null;
 
 export type Profile = {
-  student: { niat_id: string; name: string; degree: string; section: string; poc: string; coach: string };
+  student: {
+    niat_id: string;
+    name: string;
+    degree: string;
+    section: string;
+    level: string;
+    hall_no: string;
+    poc: string;
+    coach: string;
+    status: string;
+    /** Admin view only. */
+    joined_on?: string;
+    dropped_on?: string;
+    demo?: boolean;
+  };
   term: Term;
   today: string;
   summary: Summary;
@@ -49,10 +63,18 @@ export type AdminStudent = {
   name: string;
   degree: string;
   section: string;
+  hall_no: string;
   status: string;
+  /** N99 demo data. */
+  demo: boolean;
   summary: Summary;
   band: Band;
 };
+
+/** Students list filters; hall "" means students with no hall, undefined means any hall. */
+export type StudentFilters = { q?: string; degree?: string; section?: string; hall?: string };
+
+export type Hall = { hall: string; students: number };
 
 export type Overview = {
   students: number;
@@ -62,7 +84,17 @@ export type Overview = {
   bands: Record<Band, number>;
 };
 
-export type SheetRow = { niat_id: string; name: string; degree: string; counted: boolean; reason: string; fh: Mark; sh: Mark };
+export type SheetRow = {
+  niat_id: string;
+  name: string;
+  degree: string;
+  section: string;
+  hall_no: string;
+  counted: boolean;
+  reason: string;
+  fh: Mark;
+  sh: Mark;
+};
 
 export type MarkInput = { niat_id: string; date: string; half: 1 | 2; status: Mark };
 
@@ -99,10 +131,19 @@ export const api = {
     request<Me>("/api/auth/password", { method: "POST", body: JSON.stringify({ current_password, new_password }) }),
   devLogin: (email: string) => request("/api/auth/dev-login", { method: "POST", body: JSON.stringify({ email }) }),
   logout: () => fetch("/api/auth/logout", { method: "POST" }),
-  students: (q: string) =>
-    request<{ term: Term; today: string; students: AdminStudent[]; overview: Overview }>(`/api/admin/students?q=${encodeURIComponent(q)}`),
-  sheet: (date: string) =>
-    request<{ date: string; today: string; students: SheetRow[] }>(`/api/admin/attendance/sheet?date=${date}`),
+  students: (f: StudentFilters = {}) => {
+    const qs = new URLSearchParams({ q: f.q ?? "", degree: f.degree ?? "", section: f.section ?? "" });
+    if (f.hall !== undefined) qs.set("hall", f.hall);
+    return request<{ term: Term; today: string; students: AdminStudent[]; overview: Overview }>(`/api/admin/students?${qs}`);
+  },
+  /** The admin view of one student: the student profile plus admin-only fields, for any status. */
+  adminStudent: (id: string) => request<Profile>(`/api/admin/students/${encodeURIComponent(id)}`),
+  adminMonth: (id: string, ym: string) => request<Month>(`/api/admin/students/${encodeURIComponent(id)}/month?ym=${ym}`),
+  halls: () => request<{ halls: Hall[] }>("/api/admin/halls"),
+  sheet: (date: string, hall: string) =>
+    request<{ date: string; today: string; students: SheetRow[] }>(
+      `/api/admin/attendance/sheet?${new URLSearchParams({ date, hall })}`,
+    ),
   saveMarks: (marks: MarkInput[]) =>
     request<{ saved: number; cleared: number }>("/api/admin/attendance", { method: "PUT", body: JSON.stringify(marks) }),
 };
@@ -124,14 +165,18 @@ export type ImportResult = {
   rows: ImportRow[];
   committed: boolean;
   saved: number;
+  /** The sheet's date columns, when it has any; saved by the same commit. */
+  attendance?: AttendanceImportResult;
 };
 
-type UploadOpts = { commit?: boolean; skipErrors?: boolean };
+/** columnDates gives a date (YYYY-MM-DD) to unreadable date headers, by 0-based column. */
+type UploadOpts = { commit?: boolean; skipErrors?: boolean; columnDates?: Record<number, string> };
 
 /** Uploads a sheet to an import endpoint: a preview by default, or saves it with commit. */
 async function uploadSheet<T>(kind: "students" | "attendance" | "calendar", file: File, opts: UploadOpts): Promise<T> {
   const form = new FormData();
   form.append("file", file);
+  if (opts.columnDates && Object.keys(opts.columnDates).length > 0) form.append("column_dates", JSON.stringify(opts.columnDates));
   const qs = new URLSearchParams({ commit: String(!!opts.commit), skip_errors: String(!!opts.skipErrors) });
   const res = await fetch(`/api/admin/imports/${kind}?${qs}`, { method: "POST", body: form });
   const body = await res.json().catch(() => null);
@@ -157,7 +202,10 @@ export type AttendanceImportRow = {
 export type AttendanceImportResult = {
   file_name: string;
   dates: string[];
+  /** Unreadable date headers; read only once given a date. suggested is "" when there is no guess. */
+  bad_columns: { column: number; header: string; suggested: string }[];
   header_errors: string[];
+  header_warnings: string[];
   missing_dates: MissingDate[];
   summary: {
     rows: number;
@@ -197,8 +245,42 @@ export const adminsApi = {
     request<AdminAccount>("/api/admin/admins", { method: "POST", body: JSON.stringify({ name, email, password }) }),
   resetPassword: (id: number, password: string) =>
     request<AdminAccount>(`/api/admin/admins/${id}/password`, { method: "POST", body: JSON.stringify({ password }) }),
-  update: (id: number, change: { active?: boolean; role?: "owner" | "admin" }) =>
+  update: (id: number, change: { name?: string; email?: string; active?: boolean; role?: "owner" | "admin" }) =>
     request<AdminAccount>(`/api/admin/admins/${id}`, { method: "PATCH", body: JSON.stringify(change) }),
+  remove: async (id: number) => {
+    const res = await fetch(`/api/admin/admins/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new ApiError(res.status, body?.error?.message ?? `Delete failed (${res.status})`);
+    }
+  },
+};
+
+/** The add/edit student form. Blank optional fields are stored empty. */
+export type StudentForm = {
+  niat_id?: string; // add only; the NIAT ID cannot be changed
+  name: string;
+  degree: string;
+  section: string;
+  level: string;
+  hall_no: string;
+  poc: string;
+  coach: string;
+  status: "active" | "dropped";
+  joined_on: string;
+  dropped_on: string;
+};
+
+export const studentsApi = {
+  create: (f: StudentForm) => request<{ niat_id: string }>("/api/admin/students", { method: "POST", body: JSON.stringify(f) }),
+  update: (id: string, f: StudentForm) =>
+    request<{ niat_id: string }>(`/api/admin/students/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(f) }),
+  /** Owner only. Deletes the student and all their marks; confirm must repeat the NIAT ID. */
+  remove: (id: string, confirm: string) =>
+    request<{ deleted: string; marks_deleted: number }>(
+      `/api/admin/students/${encodeURIComponent(id)}?${new URLSearchParams({ confirm })}`,
+      { method: "DELETE" },
+    ),
 };
 
 export type TermRow = { id: number; name: string; start: string; end: string; is_current: boolean };

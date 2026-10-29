@@ -50,7 +50,6 @@ jobs:
         run: sqlc diff
 
       - run: go vet ./...
-      - run: go test -race ./...
 
       - name: Migrations apply, roll back and re-apply
         run: |

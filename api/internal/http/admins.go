@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"attendance-dashboard/api/internal/auth"
 	"attendance-dashboard/api/internal/db"
@@ -164,19 +165,45 @@ func (s *Server) handleResetAdminPassword(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, toAdminJSON(updated))
 }
 
-// PATCH /api/admin/admins/{id} {active?, role?} (Owner only). At least one
-// active Owner must always remain; deactivating ends the admin's sessions.
+// PATCH /api/admin/admins/{id} {name?, email?, active?, role?} (Owner only).
+// At least one active Owner must always remain; deactivating or changing the
+// email ends the admin's sessions (the Owner editing their own email stays
+// signed in).
 func (s *Server) handleUpdateAdmin(w http.ResponseWriter, r *http.Request) {
 	target, ok := s.targetAdmin(w, r)
 	if !ok {
 		return
 	}
 	var req struct {
+		Name   *string `json:"name"`
+		Email  *string `json:"email"`
 		Active *bool   `json:"active"`
 		Role   *string `json:"role"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
+	}
+	name, email := target.Name, target.Email
+	if req.Name != nil {
+		name = strings.Join(strings.Fields(*req.Name), " ")
+		if name == "" || len(name) > 100 {
+			writeError(w, http.StatusUnprocessableEntity, "invalid_name", "Enter the admin's name (up to 100 characters).", nil)
+			return
+		}
+	}
+	if req.Email != nil {
+		email = strings.ToLower(strings.TrimSpace(*req.Email))
+		if addr, err := mail.ParseAddress(email); err != nil || addr.Address != email {
+			writeError(w, http.StatusUnprocessableEntity, "invalid_email", "Enter a valid email address.", nil)
+			return
+		}
+		if other, err := s.store.GetAdminByEmail(r.Context(), email); err == nil && other.ID != target.ID {
+			writeError(w, http.StatusConflict, "duplicate_email", "Another admin already uses this email.", nil)
+			return
+		} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			s.internalError(w, "check admin email", err)
+			return
+		}
 	}
 	active, role := target.Active, target.Role
 	if req.Active != nil {
@@ -204,9 +231,19 @@ func (s *Server) handleUpdateAdmin(w http.ResponseWriter, r *http.Request) {
 			lastOwner = true
 			return nil
 		}
+		if name != target.Name || email != target.Email {
+			if _, err := q.UpdateAdminProfile(r.Context(), db.UpdateAdminProfileParams{ID: target.ID, Name: name, Email: email}); err != nil {
+				return err
+			}
+		}
 		updated, err = q.UpdateAdminAccess(r.Context(), db.UpdateAdminAccessParams{ID: target.ID, Active: active, Role: role})
 		return err
 	})
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" { // the email was taken in the meantime
+		writeError(w, http.StatusConflict, "duplicate_email", "Another admin already uses this email.", nil)
+		return
+	}
 	if err != nil {
 		s.internalError(w, "update admin", err)
 		return
@@ -216,8 +253,50 @@ func (s *Server) handleUpdateAdmin(w http.ResponseWriter, r *http.Request) {
 			"This is the only active Owner. Make another admin an Owner before deactivating or demoting this account.", nil)
 		return
 	}
-	s.log.Info("admin access updated", "by", adminFrom(r.Context()).ID, "admin_id", target.ID, "active", active, "role", role)
+	if updated.ID == adminFrom(r.Context()).ID && updated.Active {
+		_ = s.startSession(w, updated) // an email change ended the Owner's own session
+	}
+	s.log.Info("admin updated", "by", adminFrom(r.Context()).ID, "admin_id", target.ID, "active", active, "role", role,
+		"email_changed", email != target.Email)
 	writeJSON(w, http.StatusOK, toAdminJSON(updated))
+}
+
+// DELETE /api/admin/admins/{id} (Owner only). You cannot delete yourself or
+// the last active Owner. Marks and imports they saved are kept. Their session
+// stops working because the account no longer exists.
+func (s *Server) handleDeleteAdmin(w http.ResponseWriter, r *http.Request) {
+	target, ok := s.targetAdmin(w, r)
+	if !ok {
+		return
+	}
+	if target.ID == adminFrom(r.Context()).ID {
+		writeError(w, http.StatusConflict, "cannot_delete_self", "You cannot delete your own account.", nil)
+		return
+	}
+	lastOwner := false
+	err := pgx.BeginFunc(r.Context(), s.pool, func(tx pgx.Tx) error {
+		q := db.New(tx)
+		owners, err := q.LockActiveOwners(r.Context())
+		if err != nil {
+			return err
+		}
+		if target.Active && target.Role == "owner" && len(owners) <= 1 {
+			lastOwner = true
+			return nil
+		}
+		_, err = q.DeleteAdmin(r.Context(), target.ID)
+		return err
+	})
+	if err != nil {
+		s.internalError(w, "delete admin", err)
+		return
+	}
+	if lastOwner {
+		writeError(w, http.StatusConflict, "last_owner", "This is the only active Owner and cannot be deleted.", nil)
+		return
+	}
+	s.log.Info("admin deleted", "by", adminFrom(r.Context()).ID, "admin_id", target.ID)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) targetAdmin(w http.ResponseWriter, r *http.Request) (db.Admin, bool) {

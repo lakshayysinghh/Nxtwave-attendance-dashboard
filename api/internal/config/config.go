@@ -115,7 +115,6 @@ func fromEnv(env string, getenv func(string) string) (Config, error) {
 	return cfg, nil
 }
 
-// GoogleConfigured reports whether Google sign-in can be offered.
 func (c Config) GoogleConfigured() bool {
 	return c.GoogleClientID != "" && c.GoogleClientSecret != ""
 }

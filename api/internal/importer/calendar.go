@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-// CalendarRow is one row of a calendar sheet.
 type CalendarRow struct {
 	Row       int       `json:"row"`
 	Date      time.Time `json:"-"`
@@ -80,7 +79,7 @@ func ParseCalendar(table [][]string, degrees map[string]bool) ([]CalendarRow, er
 		case dateText == "":
 			fail("Date is missing.")
 		case err != nil:
-			fail(fmt.Sprintf("Date %q is not readable (use 2026-08-19, 19-Aug-2026 or 19/08/2026).", dateText))
+			fail(fmt.Sprintf("Date %q is not readable (use 2026-08-19, 19-Aug-2026, 19-Aug-26 or 19/08/2026).", dateText))
 		default:
 			r.Date, r.DateText = d, d.Format(time.DateOnly)
 		}

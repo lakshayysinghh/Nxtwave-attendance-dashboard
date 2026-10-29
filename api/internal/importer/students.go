@@ -140,7 +140,7 @@ func ParseStudents(table [][]string, niatPattern *regexp.Regexp, degrees map[str
 		if !ok || i >= len(row) {
 			return ""
 		}
-		return strings.Join(strings.Fields(row[i]), " ") // trim and collapse spaces
+		return strings.Join(strings.Fields(row[i]), " ")
 	}
 
 	var out []StudentRow
@@ -153,11 +153,11 @@ func ParseStudents(table [][]string, niatPattern *regexp.Regexp, degrees map[str
 			Degree:  strings.ToUpper(cell(raw, colDegree)),
 			Section: strings.ToUpper(cell(raw, colSection)),
 			Level:   cell(raw, colLevel),
-			HallNo:  cell(raw, colHallNo),
+			HallNo:  NormaliseHall(cell(raw, colHallNo)),
 			POC:     cell(raw, colPOC),
 		}
 		if strings.TrimSpace(strings.Join(raw, "")) == "" {
-			continue // blank line
+			continue
 		}
 
 		switch {
@@ -186,7 +186,7 @@ func ParseStudents(table [][]string, niatPattern *regexp.Regexp, degrees map[str
 		}
 		if v := cell(raw, colJoined); v != "" {
 			if d, err := parseDate(v); err != nil {
-				r.fail(fmt.Sprintf("Joined On %q is not a date (use 2026-08-19, 19-Aug-2026 or 19/08/2026).", v))
+				r.fail(fmt.Sprintf("Joined On %q is not a date (use 2026-08-19, 19-Aug-2026, 19-Aug-26 or 19/08/2026).", v))
 			} else {
 				r.JoinedOn = &d
 			}
@@ -199,7 +199,23 @@ func ParseStudents(table [][]string, niatPattern *regexp.Regexp, degrees map[str
 	return out, nil
 }
 
-var dateLayouts = []string{"2006-01-02", "02-Jan-2006", "2-Jan-2006", "02/01/2006", "2/1/2006", "02-01-2006", "2 Jan 2006"}
+var hallNumber = regexp.MustCompile(`(?i)^h(?:all)?[\s.\-_#]*(?:no\.?\s*)?0*(\d+)$`)
+
+// NormaliseHall writes hall numbers one way, so "H-1", "hall1", "Hall No 1"
+// and "HALL 1" all become "Hall 1". Other values are kept as typed.
+func NormaliseHall(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if m := hallNumber.FindStringSubmatch(s); m != nil {
+		return "Hall " + m[1]
+	}
+	return s
+}
+
+// Two-digit years ("19-Aug-26") read as 20xx: Go maps 00–68 to 2000–2068.
+var dateLayouts = []string{
+	"2006-01-02", "02-Jan-2006", "2-Jan-2006", "02/01/2006", "2/1/2006", "02-01-2006", "2 Jan 2006",
+	"02-Jan-06", "2-Jan-06", "02 Jan 06", "2 Jan 06",
+}
 
 // parseDate accepts the plan's date forms and Excel serial numbers.
 func parseDate(s string) (time.Time, error) {

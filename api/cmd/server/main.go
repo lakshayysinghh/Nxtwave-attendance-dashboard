@@ -9,6 +9,8 @@
 //	server create-owner      one-time setup: set the OWNER_EMAIL admin's password (prompted)
 //	server create-owner --reset  replace the Owner's password
 //	server set-password EMAIL    emergency password reset for an existing admin (prompted)
+//
+// With APP_ENV=production, seed and migrate down/down-all are refused.
 package main
 
 import (
@@ -50,6 +52,10 @@ func run(log *slog.Logger, args []string) error {
 	}
 
 	if len(args) > 0 {
+		// Demo data and rollbacks can delete real records, so production refuses them.
+		if cfg.IsProduction() && (args[0] == "seed" || (args[0] == "migrate" && len(args) == 2 && args[1] != "up")) {
+			return fmt.Errorf("%q is refused when APP_ENV=production: it can delete real data", strings.Join(args, " "))
+		}
 		switch {
 		case len(args) == 2 && args[0] == "migrate":
 			return runMigrate(log, cfg.DatabaseURL, migrations.Direction(args[1]))
