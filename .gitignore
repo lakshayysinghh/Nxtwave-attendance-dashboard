@@ -5,3 +5,9 @@ api/tmp/
 .idea/
 .vscode/
 .DS_Store
+
+# Local env files and keys: never commit. Templates stay tracked.
+.env.*
+!.env.example
+*.pem
+*.key

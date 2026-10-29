@@ -9,7 +9,44 @@ import (
 )
 
 type Querier interface {
+	DeleteDemoMarks(ctx context.Context) (int64, error)
+	DeleteDemoStudents(ctx context.Context) (int64, error)
+	DeleteMarks(ctx context.Context, arg DeleteMarksParams) (int64, error)
+	GetAdminByEmail(ctx context.Context, email string) (Admin, error)
+	GetAdminByID(ctx context.Context, id int64) (Admin, error)
+	GetMentorByName(ctx context.Context, arg GetMentorByNameParams) (Mentor, error)
+	GetSetting(ctx context.Context, key string) (Setting, error)
+	GetStudent(ctx context.Context, niatID string) (GetStudentRow, error)
+	GetStudentsByIDs(ctx context.Context, niatIds []string) ([]Student, error)
+	InsertCalendarDayIfMissing(ctx context.Context, arg InsertCalendarDayIfMissingParams) error
+	InsertDegreeIfMissing(ctx context.Context, arg InsertDegreeIfMissingParams) error
+	// Seed only: keeps any mark that already exists.
+	InsertMarksIfMissing(ctx context.Context, arg InsertMarksIfMissingParams) (int64, error)
+	InsertMentorIfMissing(ctx context.Context, arg InsertMentorIfMissingParams) error
+	// Seed only: never overwrites an existing student.
+	InsertStudentIfMissing(ctx context.Context, arg InsertStudentIfMissingParams) (int64, error)
+	// Seed only: adds the term unless one with the same name exists.
+	InsertTermIfMissing(ctx context.Context, arg InsertTermIfMissingParams) error
+	ListActiveStudentsInSection(ctx context.Context, arg ListActiveStudentsInSectionParams) ([]Student, error)
+	ListCalendarDays(ctx context.Context, arg ListCalendarDaysParams) ([]CalendarDay, error)
+	ListDegrees(ctx context.Context) ([]Degree, error)
+	ListMarks(ctx context.Context, arg ListMarksParams) ([]ListMarksRow, error)
+	ListSections(ctx context.Context) ([]ListSectionsRow, error)
+	ListSettings(ctx context.Context) ([]Setting, error)
+	// q matches part of the name or the start of the NIAT ID; empty filters match all.
+	ListStudentsForAdmin(ctx context.Context, arg ListStudentsForAdminParams) ([]ListStudentsForAdminRow, error)
+	ListTerms(ctx context.Context) ([]Term, error)
 	Ping(ctx context.Context) (int32, error)
+	// Public name search. Returns no NIAT IDs.
+	SearchActiveStudentsByName(ctx context.Context, arg SearchActiveStudentsByNameParams) ([]SearchActiveStudentsByNameRow, error)
+	// Fills the display name from the Google profile on first sign-in.
+	SetAdminNameIfEmpty(ctx context.Context, arg SetAdminNameIfEmptyParams) error
+	UpsertMarks(ctx context.Context, arg UpsertMarksParams) (int64, error)
+	// Makes OWNER_EMAIL an active owner on startup. Never demotes anyone else.
+	UpsertOwner(ctx context.Context, email string) (Admin, error)
+	// Student import: insert new IDs, update existing ones. NULL optional values
+	// (blank cells) keep what is stored; required fields always overwrite.
+	UpsertStudentFromImport(ctx context.Context, arg UpsertStudentFromImportParams) error
 }
 
 var _ Querier = (*Queries)(nil)

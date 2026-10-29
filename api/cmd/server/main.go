@@ -1,8 +1,11 @@
 // Command server runs the attendance API.
 //
-//	server               start the HTTP server
-//	server migrate up    apply all pending migrations
-//	server migrate down  roll back the most recent migration
+//	server                   start the HTTP server
+//	server migrate up        apply all pending migrations
+//	server migrate down      roll back the most recent migration
+//	server migrate down-all  roll back every migration
+//	server seed              load demo data (idempotent)
+//	server seed --clear-demo delete N99 demo students and their marks
 package main
 
 import (
@@ -18,14 +21,14 @@ import (
 	"time"
 	_ "time/tzdata" // Asia/Kolkata must resolve even in a minimal container
 
-	"github.com/golang-migrate/migrate/v4"
-	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5"
-	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"attendance-dashboard/api/internal/auth"
 	"attendance-dashboard/api/internal/config"
 	"attendance-dashboard/api/internal/db"
 	apihttp "attendance-dashboard/api/internal/http"
+	"attendance-dashboard/api/internal/seed"
+	"attendance-dashboard/api/internal/stats"
 	"attendance-dashboard/api/migrations"
 )
 
@@ -44,14 +47,19 @@ func run(log *slog.Logger, args []string) error {
 	}
 
 	if len(args) > 0 {
-		if len(args) == 2 && args[0] == "migrate" {
-			return runMigrate(log, cfg.DatabaseURL, args[1])
+		switch {
+		case len(args) == 2 && args[0] == "migrate":
+			return runMigrate(log, cfg.DatabaseURL, migrations.Direction(args[1]))
+		case len(args) == 1 && args[0] == "seed":
+			return runSeed(log, cfg, false)
+		case len(args) == 2 && args[0] == "seed" && args[1] == "--clear-demo":
+			return runSeed(log, cfg, true)
 		}
-		return fmt.Errorf("unknown command %q (want: migrate up|down)", strings.Join(args, " "))
+		return fmt.Errorf("unknown command %q (want: migrate up|down|down-all, seed [--clear-demo])", strings.Join(args, " "))
 	}
 
 	if os.Getenv("MIGRATE_ON_START") == "true" {
-		if err := runMigrate(log, cfg.DatabaseURL, "up"); err != nil {
+		if err := runMigrate(log, cfg.DatabaseURL, migrations.Up); err != nil {
 			return err
 		}
 	}
@@ -72,10 +80,42 @@ func serve(log *slog.Logger, cfg config.Config) error {
 		return fmt.Errorf("open db pool: %w", err)
 	}
 	defer pool.Close()
+	queries := db.New(pool)
+
+	if cfg.OwnerEmail != "" {
+		owner, err := queries.UpsertOwner(ctx, cfg.OwnerEmail)
+		if err != nil {
+			return fmt.Errorf("ensure owner admin (are migrations applied?): %w", err)
+		}
+		log.Info("owner admin ensured", "admin_id", owner.ID)
+	} else {
+		log.Warn("OWNER_EMAIL is not set; no one can sign in until an admin exists")
+	}
+
+	var google auth.Provider
+	if cfg.GoogleConfigured() {
+		google = auth.NewGoogle(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleRedirectURL())
+	} else {
+		log.Warn("Google sign-in is not configured; /api/auth/google/login will answer 503")
+	}
+
+	if cfg.DevLogin {
+		log.Warn("DEV_LOGIN is on: POST /api/auth/dev-login signs in any active admin by email. Development only.")
+	}
 
 	srv := &http.Server{
-		Addr:              ":" + cfg.Port,
-		Handler:           apihttp.NewServer(log, db.New(pool), ist).Routes(),
+		Addr: ":" + cfg.Port,
+		Handler: apihttp.NewServer(apihttp.Deps{
+			Log:           log,
+			Store:         queries,
+			Pool:          pool,
+			Google:        google,
+			Signer:        auth.NewSigner(cfg.SessionSecret),
+			AppBaseURL:    cfg.AppBaseURL,
+			SecureCookies: cfg.SecureCookies(),
+			Location:      ist,
+			DevLogin:      cfg.DevLogin,
+		}).Routes(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -102,39 +142,36 @@ func serve(log *slog.Logger, cfg config.Config) error {
 	return nil
 }
 
-func runMigrate(log *slog.Logger, databaseURL, direction string) error {
-	src, err := iofs.New(migrations.FS, ".")
+func runSeed(log *slog.Logger, cfg config.Config, clearDemo bool) error {
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return fmt.Errorf("open db pool: %w", err)
+	}
+	defer pool.Close()
+
+	if clearDemo {
+		students, marks, err := seed.ClearDemo(ctx, pool)
+		if err != nil {
+			return err
+		}
+		log.Info("demo data cleared (N99 students only)", "students_deleted", students, "marks_deleted", marks)
+		return nil
+	}
+	res, err := seed.Run(ctx, pool, cfg.OwnerEmail, stats.TodayIST(time.Now()))
 	if err != nil {
 		return err
 	}
-	m, err := migrate.NewWithSourceInstance("iofs", src, migrateURL(databaseURL))
-	if err != nil {
-		return fmt.Errorf("open migrations: %w", err)
-	}
-	defer m.Close()
-
-	switch direction {
-	case "up":
-		err = m.Up()
-	case "down":
-		err = m.Steps(-1)
-	default:
-		return fmt.Errorf("unknown migrate direction %q (want up or down)", direction)
-	}
-	if err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		return fmt.Errorf("migrate %s: %w", direction, err)
-	}
-	version, dirty, _ := m.Version()
-	log.Info("migrations done", "direction", direction, "version", version, "dirty", dirty)
+	log.Info("seed done", "students_inserted", res.StudentsInserted, "marks_inserted", res.MarksInserted,
+		"marked_until", stats.DateKey(res.MarkedUntil), "owner_email", cfg.OwnerEmail)
 	return nil
 }
 
-// migrateURL switches a postgres:// URL to the pgx/v5 driver's scheme.
-func migrateURL(databaseURL string) string {
-	for _, prefix := range []string{"postgresql://", "postgres://"} {
-		if strings.HasPrefix(databaseURL, prefix) {
-			return "pgx5://" + strings.TrimPrefix(databaseURL, prefix)
-		}
+func runMigrate(log *slog.Logger, databaseURL string, dir migrations.Direction) error {
+	version, err := migrations.Run(databaseURL, dir)
+	if err != nil {
+		return err
 	}
-	return databaseURL
+	log.Info("migrations done", "direction", dir, "version", version)
+	return nil
 }

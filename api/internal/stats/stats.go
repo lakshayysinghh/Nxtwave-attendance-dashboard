@@ -1,0 +1,385 @@
+// Package stats is the only home of business rules: day resolution, half-day
+// sessions, percentages and day labels. It is pure Go with no HTTP or
+// database access, so every rule is covered by table-driven tests.
+//
+// Dates are calendar dates in Asia/Kolkata, represented as time.Time at
+// midnight UTC (the form pgx returns for DATE columns).
+package stats
+
+import (
+	"math"
+	"time"
+)
+
+// IST is Asia/Kolkata. It has had no daylight saving since 1945, so a fixed
+// offset is exact and needs no tz database.
+var IST = time.FixedZone("IST", 5*60*60+30*60)
+
+// Date returns the calendar date y-m-d.
+func Date(y int, m time.Month, d int) time.Time {
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+}
+
+// TodayIST is the current calendar date in India.
+func TodayIST(now time.Time) time.Time {
+	y, m, d := now.In(IST).Date()
+	return Date(y, m, d)
+}
+
+// DateKey formats a date as YYYY-MM-DD.
+func DateKey(d time.Time) string { return d.Format(time.DateOnly) }
+
+// Kind is what the calendar says about a date.
+type Kind string
+
+const (
+	KindWorking Kind = "working"
+	KindHoliday Kind = "holiday"
+	KindExam    Kind = "exam"
+	KindEvent   Kind = "event"
+	KindSunday  Kind = "sunday"
+)
+
+// Exclusion is why an otherwise counted date does not count for a student.
+type Exclusion string
+
+const (
+	NotExcluded Exclusion = ""
+	OutsideTerm Exclusion = "outside_term"
+	BeforeJoin  Exclusion = "before_join"
+	AfterDrop   Exclusion = "after_drop"
+	Future      Exclusion = "future"
+)
+
+// CalendarEntry is one row of calendar_days. AppliesTo is "ALL" or a degree code.
+type CalendarEntry struct {
+	Date      time.Time
+	AppliesTo string
+	DayType   Kind
+	Counts    bool
+	Label     string
+}
+
+// Calendar indexes entries by date and AppliesTo.
+type Calendar struct {
+	byDate map[string]map[string]CalendarEntry
+}
+
+func NewCalendar(entries []CalendarEntry) Calendar {
+	c := Calendar{byDate: map[string]map[string]CalendarEntry{}}
+	for _, e := range entries {
+		k := DateKey(e.Date)
+		if c.byDate[k] == nil {
+			c.byDate[k] = map[string]CalendarEntry{}
+		}
+		c.byDate[k][e.AppliesTo] = e
+	}
+	return c
+}
+
+type Term struct {
+	ID        int64
+	Name      string
+	Start     time.Time
+	End       time.Time
+	IsCurrent bool
+}
+
+// Contains reports whether d falls in the term, both ends included.
+func (t Term) Contains(d time.Time) bool {
+	return !d.Before(t.Start) && !d.After(t.End)
+}
+
+// Student holds the fields the rules need.
+type Student struct {
+	Degree    string
+	JoinedOn  *time.Time // nil: counts from the term start
+	DroppedOn *time.Time // nil: still active; otherwise counts up to and including this date
+}
+
+// Day is a date resolved for one student.
+type Day struct {
+	Date      time.Time
+	Kind      Kind
+	Label     string
+	Excluded  Exclusion
+	Counted   bool // true only when the day counts and is not excluded
+	dayCounts bool
+}
+
+// ResolveDay applies the day-resolution order from docs/PLAN.md:
+//  1. outside every term, before joining, after dropping, or in the future: not counted;
+//  2. a calendar entry for the student's degree;
+//  3. a calendar entry for ALL;
+//  4. Sunday: holiday;
+//  5. otherwise: working.
+//
+// The calendar kind and label are filled in even for excluded days, so a
+// future holiday still shows its label.
+func ResolveDay(d time.Time, s Student, cal Calendar, terms []Term, today time.Time) Day {
+	day := Day{Date: d}
+	entries := cal.byDate[DateKey(d)]
+	if e, ok := entries[s.Degree]; ok {
+		day.Kind, day.Label, day.dayCounts = e.DayType, e.Label, entryCounts(e)
+	} else if e, ok := entries["ALL"]; ok {
+		day.Kind, day.Label, day.dayCounts = e.DayType, e.Label, entryCounts(e)
+	} else if d.Weekday() == time.Sunday {
+		day.Kind, day.dayCounts = KindSunday, false
+	} else {
+		day.Kind, day.dayCounts = KindWorking, true
+	}
+
+	switch {
+	case d.After(today):
+		day.Excluded = Future
+	case !inAnyTerm(d, terms):
+		day.Excluded = OutsideTerm
+	case s.JoinedOn != nil && d.Before(*s.JoinedOn):
+		day.Excluded = BeforeJoin
+	case s.DroppedOn != nil && d.After(*s.DroppedOn):
+		day.Excluded = AfterDrop
+	}
+	day.Counted = day.dayCounts && day.Excluded == NotExcluded
+	return day
+}
+
+// entryCounts: working always counts, holiday and exam never do, an event
+// follows its own Counts flag.
+func entryCounts(e CalendarEntry) bool {
+	switch e.DayType {
+	case KindWorking:
+		return true
+	case KindEvent:
+		return e.Counts
+	default:
+		return false
+	}
+}
+
+func inAnyTerm(d time.Time, terms []Term) bool {
+	for _, t := range terms {
+		if t.Contains(d) {
+			return true
+		}
+	}
+	return false
+}
+
+// Status is one session's mark.
+type Status uint8
+
+const (
+	NotMarked Status = iota
+	Present
+	Absent
+)
+
+// Halves are the First half (index 0) and Second half (index 1) marks of a day.
+type Halves [2]Status
+
+// Marks maps DateKey to a student's marks for that day.
+type Marks map[string]Halves
+
+// DayLabel summarises a counted day's two halves.
+type DayLabel string
+
+const (
+	LabelPresent      DayLabel = "present"
+	LabelHalfDay      DayLabel = "half_day"
+	LabelAbsent       DayLabel = "absent"
+	LabelPartlyMarked DayLabel = "partly_marked"
+	LabelNotMarked    DayLabel = "not_marked"
+)
+
+func LabelFor(h Halves) DayLabel {
+	switch {
+	case h[0] == Present && h[1] == Present:
+		return LabelPresent
+	case h[0] == Absent && h[1] == Absent:
+		return LabelAbsent
+	case h[0] != NotMarked && h[1] != NotMarked:
+		return LabelHalfDay
+	case h[0] != NotMarked || h[1] != NotMarked:
+		return LabelPartlyMarked
+	default:
+		return LabelNotMarked
+	}
+}
+
+// Summary counts sessions (two per counted day) over a period.
+type Summary struct {
+	CountedDays  int      `json:"counted_days"`
+	Present      int      `json:"present_sessions"`
+	Absent       int      `json:"absent_sessions"`
+	NotMarked    int      `json:"not_marked_sessions"`
+	Pct          *float64 `json:"pct"`           // nil when nothing is marked ("–")
+	DaysAttended float64  `json:"days_attended"` // present sessions ÷ 2
+	DaysAbsent   float64  `json:"days_absent"`   // absent sessions ÷ 2
+	Band         Band     `json:"band"`
+}
+
+func (s *Summary) add(h Halves) {
+	s.CountedDays++
+	for _, st := range h {
+		switch st {
+		case Present:
+			s.Present++
+		case Absent:
+			s.Absent++
+		default:
+			s.NotMarked++
+		}
+	}
+}
+
+func (s *Summary) finish() {
+	s.DaysAttended = float64(s.Present) / 2
+	s.DaysAbsent = float64(s.Absent) / 2
+	if marked := s.Present + s.Absent; marked > 0 {
+		p := math.Round(float64(s.Present)*1000/float64(marked)) / 10
+		s.Pct = &p
+	}
+	s.Band = BandOf(s.Pct)
+}
+
+// Summarize counts sessions on the student's counted days from..to inclusive.
+// Marks on days that do not count are ignored.
+func Summarize(s Student, from, to time.Time, cal Calendar, terms []Term, marks Marks, today time.Time) Summary {
+	var sum Summary
+	for d := from; !d.After(to); d = d.AddDate(0, 0, 1) {
+		if ResolveDay(d, s, cal, terms, today).Counted {
+			sum.add(marks[DateKey(d)])
+		}
+	}
+	sum.finish()
+	return sum
+}
+
+// MonthSummary is a Summary for one calendar month, clipped to the term.
+type MonthSummary struct {
+	Month string `json:"month"` // YYYY-MM
+	Summary
+}
+
+// Months returns one summary per month of the term, up to today's month.
+func Months(s Student, term Term, cal Calendar, terms []Term, marks Marks, today time.Time) []MonthSummary {
+	var out []MonthSummary
+	for m := Date(term.Start.Year(), term.Start.Month(), 1); !m.After(term.End) && !m.After(today); m = m.AddDate(0, 1, 0) {
+		from, to := m, m.AddDate(0, 1, -1)
+		if from.Before(term.Start) {
+			from = term.Start
+		}
+		if to.After(term.End) {
+			to = term.End
+		}
+		out = append(out, MonthSummary{Month: m.Format("2006-01"), Summary: Summarize(s, from, to, cal, terms, marks, today)})
+	}
+	return out
+}
+
+// DayDetail is one calendar day for a student, with its marks.
+type DayDetail struct {
+	Day
+	Halves   Halves
+	DayLabel DayLabel // empty on days that do not count
+}
+
+// MonthDays resolves every day of month m (any date in it) for the student.
+func MonthDays(s Student, m time.Time, cal Calendar, terms []Term, marks Marks, today time.Time) []DayDetail {
+	first := Date(m.Year(), m.Month(), 1)
+	var out []DayDetail
+	for d := first; d.Month() == first.Month(); d = d.AddDate(0, 0, 1) {
+		day := ResolveDay(d, s, cal, terms, today)
+		det := DayDetail{Day: day}
+		if day.Counted {
+			det.Halves = marks[DateKey(d)]
+			det.DayLabel = LabelFor(det.Halves)
+		}
+		out = append(out, det)
+	}
+	return out
+}
+
+// CurrentTerm returns the term flagged current, else the term containing
+// today, else the latest term that has started; ok is false with no terms.
+func CurrentTerm(terms []Term, today time.Time) (Term, bool) {
+	for _, t := range terms {
+		if t.IsCurrent {
+			return t, true
+		}
+	}
+	for _, t := range terms {
+		if t.Contains(today) {
+			return t, true
+		}
+	}
+	var best Term
+	found := false
+	for _, t := range terms {
+		if !t.Start.After(today) && (!found || t.Start.After(best.Start)) {
+			best, found = t, true
+		}
+	}
+	return best, found
+}
+
+// Overview summarises a group: the group % is the average of its students'
+// percentages (students with nothing marked are left out), per docs/PLAN.md.
+type Overview struct {
+	Students       int          `json:"students"`
+	AveragePct     *float64     `json:"average_pct"`
+	BelowThreshold int          `json:"below_threshold"`
+	Threshold      float64      `json:"threshold"`
+	Bands          map[Band]int `json:"bands"` // students per band, including "none"
+}
+
+func Summarise(summaries []Summary, threshold float64) Overview {
+	o := Overview{Students: len(summaries), Threshold: threshold, Bands: map[Band]int{BandLow: 0, BandMid: 0, BandHigh: 0, BandNone: 0}}
+	var total float64
+	n := 0
+	for _, s := range summaries {
+		o.Bands[BandOf(s.Pct)]++
+		if s.Pct == nil {
+			continue
+		}
+		total += *s.Pct
+		n++
+		if *s.Pct < threshold {
+			o.BelowThreshold++
+		}
+	}
+	if n > 0 {
+		avg := math.Round(total*10/float64(n)) / 10
+		o.AveragePct = &avg
+	}
+	return o
+}
+
+// Band groups a percentage by the default edges: below 60, 60 to below 75,
+// 75 and above. Exactly 60.0 is mid and exactly 75.0 is high.
+type Band string
+
+const (
+	BandLow  Band = "below_60"
+	BandMid  Band = "60_to_75"
+	BandHigh Band = "75_plus"
+	BandNone Band = "none" // nothing marked yet
+)
+
+const (
+	BandEdgeMid  = 60.0
+	BandEdgeHigh = 75.0
+)
+
+func BandOf(pct *float64) Band {
+	switch {
+	case pct == nil:
+		return BandNone
+	case *pct < BandEdgeMid:
+		return BandLow
+	case *pct < BandEdgeHigh:
+		return BandMid
+	default:
+		return BandHigh
+	}
+}

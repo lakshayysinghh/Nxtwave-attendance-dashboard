@@ -3,3 +3,85 @@
 //   sqlc v1.31.1
 
 package db
+
+import (
+	"github.com/jackc/pgx/v5/pgtype"
+)
+
+type Admin struct {
+	ID        int64              `json:"id"`
+	Email     string             `json:"email"`
+	Name      string             `json:"name"`
+	Role      string             `json:"role"`
+	Active    bool               `json:"active"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type Attendance struct {
+	NiatID    string             `json:"niat_id"`
+	Date      pgtype.Date        `json:"date"`
+	Status    string             `json:"status"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	UpdatedBy pgtype.Int8        `json:"updated_by"`
+	Half      int16              `json:"half"`
+}
+
+type CalendarDay struct {
+	ID        int64       `json:"id"`
+	Date      pgtype.Date `json:"date"`
+	AppliesTo string      `json:"applies_to"`
+	DayType   string      `json:"day_type"`
+	Counts    bool        `json:"counts"`
+	Label     string      `json:"label"`
+}
+
+type Degree struct {
+	Code string `json:"code"`
+	Name string `json:"name"`
+}
+
+type ImportBatch struct {
+	ID         int64              `json:"id"`
+	Kind       string             `json:"kind"`
+	FileName   string             `json:"file_name"`
+	UploadedBy pgtype.Int8        `json:"uploaded_by"`
+	Status     string             `json:"status"`
+	Summary    []byte             `json:"summary"`
+	Rows       []byte             `json:"rows"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+}
+
+type Mentor struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+}
+
+type Setting struct {
+	Key   string `json:"key"`
+	Value []byte `json:"value"`
+}
+
+type Student struct {
+	NiatID     string             `json:"niat_id"`
+	FullName   string             `json:"full_name"`
+	DegreeCode string             `json:"degree_code"`
+	Section    string             `json:"section"`
+	Level      pgtype.Text        `json:"level"`
+	HallNo     pgtype.Text        `json:"hall_no"`
+	PocID      pgtype.Int8        `json:"poc_id"`
+	CoachID    pgtype.Int8        `json:"coach_id"`
+	Status     string             `json:"status"`
+	JoinedOn   pgtype.Date        `json:"joined_on"`
+	DroppedOn  pgtype.Date        `json:"dropped_on"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
+type Term struct {
+	ID        int64       `json:"id"`
+	Name      string      `json:"name"`
+	StartDate pgtype.Date `json:"start_date"`
+	EndDate   pgtype.Date `json:"end_date"`
+	IsCurrent bool        `json:"is_current"`
+}

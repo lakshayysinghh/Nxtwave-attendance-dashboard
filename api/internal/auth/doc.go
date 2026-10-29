@@ -1,2 +1,3 @@
-// Package auth will hold Google OAuth sign-in and admin sessions (Phase 1).
+// Package auth holds admin sign-in: Google OAuth with server-side ID token
+// verification, and stateless HMAC-signed session cookies.
 package auth
