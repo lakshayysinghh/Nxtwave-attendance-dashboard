@@ -2,7 +2,10 @@ package http
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -164,4 +167,33 @@ func labelSuffix(label string) string {
 		return ""
 	}
 	return " (" + label + ")"
+}
+
+var errNoTerm = errors.New("no such term")
+
+// termParam reads ?term=<id> for admin views of a past or future semester;
+// 0 means the current term. A malformed id writes a 400.
+func termParam(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	v := r.URL.Query().Get("term")
+	if v == "" {
+		return 0, true
+	}
+	id, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "bad_request", "term must be a term id.", nil)
+		return 0, false
+	}
+	return id, true
+}
+
+// useTerm makes term id the one summaries cover instead of the current term;
+// ok is false for an unknown id.
+func (r *rules) useTerm(id int64) bool {
+	for _, t := range r.terms {
+		if t.ID == id {
+			r.term, r.has = t, true
+			return true
+		}
+	}
+	return false
 }

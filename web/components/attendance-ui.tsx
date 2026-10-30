@@ -1,6 +1,8 @@
 // Shared presentational pieces for the student and admin pages.
 import Link from "next/link";
 
+import { Logo } from "@/components/logo";
+
 import type { Band, Mark, Term } from "@/lib/api";
 
 export function SiteHeader({ active }: { active?: "student" | "admin" }) {
@@ -17,8 +19,8 @@ export function SiteHeader({ active }: { active?: "student" | "admin" }) {
     <header className="bg-primary text-white">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
         <Link href="/" className="flex items-center gap-2">
-          <span className="flex size-8 items-center justify-center rounded-md bg-white text-sm font-bold text-primary">N</span>
-          <span className="font-semibold tracking-tight">Attendance Dashboard</span>
+          <Logo onDark />
+          <span className="font-semibold tracking-tight">NxtWave Attendance</span>
         </Link>
         <nav className="flex gap-1">
           {link("/student", "Student", active === "student")}

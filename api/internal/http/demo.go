@@ -19,7 +19,7 @@ func (s *Server) handlePublicProfile(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	resp, err := s.profile(r.Context(), st, toStudentJSON(st))
+	resp, err := s.profile(r.Context(), st, toStudentJSON(st), 0)
 	if err != nil {
 		s.internalError(w, "profile", err)
 		return
@@ -66,8 +66,9 @@ func studentFilters(r *http.Request) db.ListStudentsForAdminParams {
 
 func isDemoID(id string) bool { return strings.HasPrefix(id, "N99") }
 
-// GET /api/admin/students?q=&degree=&section=&hall=: students matching part
-// of a name or NIAT ID and the filters, with term summaries.
+// GET /api/admin/students?q=&degree=&section=&hall=&term=: students matching
+// part of a name or NIAT ID and the filters, with summaries for the term
+// (default: the current term).
 func (s *Server) handleAdminStudents(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.store.ListStudentsForAdmin(r.Context(), studentFilters(r))
 	if err != nil {
@@ -77,6 +78,14 @@ func (s *Server) handleAdminStudents(w http.ResponseWriter, r *http.Request) {
 	rl, err := s.loadRules(r.Context(), calendarStart, calendarEnd)
 	if err != nil {
 		s.internalError(w, "load rules", err)
+		return
+	}
+	termID, ok := termParam(w, r)
+	if !ok {
+		return
+	}
+	if termID != 0 && !rl.useTerm(termID) {
+		writeError(w, http.StatusNotFound, "not_found", "No such term.", nil)
 		return
 	}
 	from, to := rl.termRange()

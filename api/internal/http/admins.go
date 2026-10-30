@@ -216,6 +216,11 @@ func (s *Server) handleUpdateAdmin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "invalid_role", `Role must be "owner" or "admin".`, nil)
 		return
 	}
+	if role == "owner" && target.Role != "owner" {
+		writeError(w, http.StatusForbidden, "password_required",
+			"Making someone an Owner needs your password: use POST /api/admin/admins/{id}/make-owner.", nil)
+		return
+	}
 
 	var updated db.Admin
 	lastOwner := false
@@ -322,4 +327,40 @@ func capitalise(s string) string {
 		return s
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// POST /api/admin/admins/{id}/make-owner {current_password} (Owner only):
+// makes an active admin an Owner. The signed-in Owner must confirm with
+// their own password, so an unattended session cannot hand out Owner rights.
+func (s *Server) handleMakeOwner(w http.ResponseWriter, r *http.Request) {
+	target, ok := s.targetAdmin(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Current string `json:"current_password"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	me := adminFrom(r.Context())
+	if !auth.CheckPassword(me.PasswordHash.String, req.Current) {
+		writeError(w, http.StatusForbidden, "wrong_password", "Your password is incorrect.", nil)
+		return
+	}
+	if !target.Active {
+		writeError(w, http.StatusConflict, "inactive_admin", "Activate this admin before making them an Owner.", nil)
+		return
+	}
+	if target.Role == "owner" {
+		writeJSON(w, http.StatusOK, toAdminJSON(target))
+		return
+	}
+	updated, err := s.store.UpdateAdminAccess(r.Context(), db.UpdateAdminAccessParams{ID: target.ID, Active: true, Role: "owner"})
+	if err != nil {
+		s.internalError(w, "make owner", err)
+		return
+	}
+	s.log.Info("admin made owner", "by", me.ID, "admin_id", target.ID)
+	writeJSON(w, http.StatusOK, toAdminJSON(updated))
 }

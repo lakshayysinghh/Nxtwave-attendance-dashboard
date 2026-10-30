@@ -99,11 +99,15 @@ func (s *Server) loadStudent(w http.ResponseWriter, r *http.Request, includeDrop
 	return st, true
 }
 
-// profile computes the term summary and monthly summaries for one student.
-func (s *Server) profile(ctx context.Context, st db.GetStudentRow, student any) (profileResponse, error) {
+// profile computes the term summary and monthly summaries for one student,
+// for term termID (0: the current term). An unknown term returns errNoTerm.
+func (s *Server) profile(ctx context.Context, st db.GetStudentRow, student any, termID int64) (profileResponse, error) {
 	r, err := s.loadRules(ctx, calendarStart, calendarEnd)
 	if err != nil {
 		return profileResponse{}, err
+	}
+	if termID != 0 && !r.useTerm(termID) {
+		return profileResponse{}, errNoTerm
 	}
 	resp := profileResponse{Student: student, Term: toTermJSON(r), Today: stats.DateKey(r.today), Months: []stats.MonthSummary{}}
 	from, to := r.termRange()

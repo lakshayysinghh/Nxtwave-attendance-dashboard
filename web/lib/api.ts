@@ -82,7 +82,8 @@ export type AdminStudent = {
 };
 
 /** Students list filters; hall "" means students with no hall, undefined means any hall. */
-export type StudentFilters = { q?: string; degree?: string; section?: string; hall?: string };
+/** term is a term id; empty means the current term. */
+export type StudentFilters = { q?: string; degree?: string; section?: string; hall?: string; term?: string };
 
 export type Hall = { hall: string; students: number };
 
@@ -142,10 +143,12 @@ export const api = {
   students: (f: StudentFilters = {}) => {
     const qs = new URLSearchParams({ q: f.q ?? "", degree: f.degree ?? "", section: f.section ?? "" });
     if (f.hall !== undefined) qs.set("hall", f.hall);
+    if (f.term) qs.set("term", f.term);
     return request<{ term: Term; today: string; students: AdminStudent[]; overview: Overview }>(`/api/admin/students?${qs}`);
   },
   /** The admin view of one student: the student profile plus admin-only fields, for any status. */
-  adminStudent: (id: string) => request<Profile>(`/api/admin/students/${encodeURIComponent(id)}`),
+  adminStudent: (id: string, term = "") =>
+    request<Profile>(`/api/admin/students/${encodeURIComponent(id)}${term ? `?term=${encodeURIComponent(term)}` : ""}`),
   adminMonth: (id: string, ym: string) => request<Month>(`/api/admin/students/${encodeURIComponent(id)}/month?ym=${ym}`),
   halls: () => request<{ halls: Hall[] }>("/api/admin/halls"),
   /** Sets the student's remark for a month (YYYY-MM); an empty remark deletes it. */
@@ -261,6 +264,12 @@ export const adminsApi = {
     request<AdminAccount>(`/api/admin/admins/${id}/password`, { method: "POST", body: JSON.stringify({ password }) }),
   update: (id: number, change: { name?: string; email?: string; active?: boolean; role?: "owner" | "admin" }) =>
     request<AdminAccount>(`/api/admin/admins/${id}`, { method: "PATCH", body: JSON.stringify(change) }),
+  /** Makes an active admin an Owner; needs the signed-in Owner's own password. */
+  makeOwner: (id: number, currentPassword: string) =>
+    request<AdminAccount>(`/api/admin/admins/${id}/make-owner`, {
+      method: "POST",
+      body: JSON.stringify({ current_password: currentPassword }),
+    }),
   remove: async (id: number) => {
     const res = await fetch(`/api/admin/admins/${id}`, { method: "DELETE" });
     if (!res.ok) {

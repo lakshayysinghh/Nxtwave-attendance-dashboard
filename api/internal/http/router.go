@@ -110,6 +110,7 @@ func (s *Server) Routes() http.Handler {
 				r.Patch("/{id}", s.handleUpdateAdmin)
 				r.Delete("/{id}", s.handleDeleteAdmin)
 				r.Post("/{id}/password", s.handleResetAdminPassword)
+				r.With(RateLimitByIP(10, time.Minute)).Post("/{id}/make-owner", s.handleMakeOwner)
 			})
 		})
 

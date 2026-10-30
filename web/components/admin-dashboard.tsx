@@ -12,7 +12,7 @@ import { StudentFormCard } from "@/components/student-form";
 import { Legend, PctBadge, TermRange, bandInfo, fmtDay } from "@/components/attendance-ui";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ApiError, api, pctText, type AdminStudent, type Band, type Mark, type MarkInput } from "@/lib/api";
+import { ApiError, api, pctText, termsApi, type AdminStudent, type Band, type Mark, type MarkInput } from "@/lib/api";
 
 const inputCls =
   "h-10 rounded-md border border-input bg-white px-3 text-sm outline-none placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/15";
@@ -25,10 +25,57 @@ const isBand = (v: string | null): v is BandKey => !!v && (bandOrder as string[]
 const NO_HALL = "__none__";
 const hallLabel = (h: string) => h || "No hall";
 
-/** Every student with term summaries; stats always cover everyone. */
-const useAllStudents = () => useQuery({ queryKey: ["students", "all"], queryFn: () => api.students() });
+/** The term chosen with ?term=<id>; "" is the current term. */
+export const useTermParam = () => useSearchParams().get("term") ?? "";
 
-export const studentHref = (id: string) => `/admin/students/${encodeURIComponent(id)}`;
+/** Every student with summaries for the chosen term; stats always cover everyone. */
+const useAllStudents = () => {
+  const term = useTermParam();
+  return useQuery({ queryKey: ["students", "all", term], queryFn: () => api.students({ term }) });
+};
+
+export const studentHref = (id: string, term = "") =>
+  `/admin/students/${encodeURIComponent(id)}${term ? `?term=${encodeURIComponent(term)}` : ""}`;
+
+/**
+ * Semester picker for admin pages. It keeps the other query parameters and
+ * clears ?term= when the current term is picked.
+ */
+export function TermPicker() {
+  const params = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const terms = useQuery({ queryKey: ["terms"], queryFn: termsApi.list });
+  const list = terms.data?.terms ?? [];
+  if (list.length < 1) return null;
+  const current = list.find((t) => t.is_current)?.id;
+  const value = params.get("term") ?? String(current ?? "");
+  return (
+    <label className="flex items-center gap-2 text-sm font-medium">
+      Term
+      <select
+        className="h-9 rounded-md border border-input bg-white px-2 text-sm"
+        value={value}
+        onChange={(e) => {
+          const next = new URLSearchParams(params.toString());
+          if (e.target.value === String(current)) next.delete("term");
+          else next.set("term", e.target.value);
+          const qs = next.toString();
+          router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+        }}
+      >
+        {[...list]
+          .sort((a, b) => b.start.localeCompare(a.start))
+          .map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+              {t.is_current ? " (current)" : ""}
+            </option>
+          ))}
+      </select>
+    </label>
+  );
+}
 
 /** Students, average and the three band cards. Band cards call onBand. */
 function SummaryCards({ band, onBand, hint }: { band?: BandKey | null; onBand: (b: BandKey) => void; hint: (on: boolean) => string }) {
@@ -74,7 +121,8 @@ function TermLine() {
   if (!all.data) return null;
   return (
     <>
-      {all.data.term ? <TermRange term={all.data.term} /> : "No current term"} · data up to {fmtDay(all.data.today)}
+      {all.data.term ? <TermRange term={all.data.term} /> : "No current term"} · data up to{" "}
+      {fmtDay(all.data.term && all.data.term.end < all.data.today ? all.data.term.end : all.data.today)}
     </>
   );
 }
@@ -82,6 +130,7 @@ function TermLine() {
 /** Overview: the numbers at a glance, students needing attention and quick actions. */
 export function OverviewPage() {
   const router = useRouter();
+  const term = useTermParam();
   const all = useAllStudents();
   // Lowest first among students below 75% (the plan's default low threshold).
   const attention = (all.data?.students ?? [])
@@ -93,12 +142,16 @@ export function OverviewPage() {
   return (
     <>
       <PageHeading title="Overview" description={<TermLine />}>
+        <TermPicker />
         <QuickAction href="/admin/attendance" icon={ClipboardCheck} label="Mark attendance" primary />
         <QuickAction href="/admin/imports?tab=students" icon={Upload} label="Import students" />
         <QuickAction href="/admin/imports?tab=attendance" icon={Upload} label="Import attendance" />
       </PageHeading>
 
-      <SummaryCards onBand={(b) => router.push(`/admin/students?band=${b}`)} hint={() => "View these students →"} />
+      <SummaryCards
+        onBand={(b) => router.push(`/admin/students?${new URLSearchParams({ band: b, ...(term ? { term } : {}) })}`)}
+        hint={() => "View these students →"}
+      />
 
       <Card>
         <CardHeader>
@@ -188,7 +241,7 @@ export function StudentsPage() {
   };
 
   const all = useAllStudents();
-  const filters = { q, degree, section, hall };
+  const filters = { q, degree, section, hall, term: params.get("term") ?? "" };
   const list = useQuery({
     queryKey: ["students", filters],
     queryFn: () => api.students(filters),
@@ -208,6 +261,7 @@ export function StudentsPage() {
   return (
     <>
       <PageHeading title="Students" description={<TermLine />}>
+        <TermPicker />
         <Button onClick={() => setAdding((v) => !v)}>
           <UserPlus className="size-4" /> {adding ? "Close" : "Add student"}
         </Button>
@@ -304,6 +358,7 @@ function Attendance({ s }: { s: AdminStudent }) {
 
 /** The student table (desktop) and stacked cards (phones). Names and NIAT IDs open the student. */
 function StudentRows({ rows, compact }: { rows: AdminStudent[]; compact?: boolean }) {
+  const term = useTermParam();
   const link = "hover:text-primary hover:underline";
   return (
     <>
@@ -326,12 +381,12 @@ function StudentRows({ rows, compact }: { rows: AdminStudent[]; compact?: boolea
             {rows.map((s) => (
               <tr key={s.niat_id} className="border-t border-border hover:bg-muted/60">
                 <td className={`px-3 font-mono text-xs ${compact ? "py-1.5" : "py-2"}`}>
-                  <Link href={studentHref(s.niat_id)} className={link}>
+                  <Link href={studentHref(s.niat_id, term)} className={link}>
                     {s.niat_id}
                   </Link>
                 </td>
                 <td className="px-3 font-medium">
-                  <Link href={studentHref(s.niat_id)} className={link}>
+                  <Link href={studentHref(s.niat_id, term)} className={link}>
                     {s.name}
                   </Link>
                   {s.demo && <DemoBadge />}
@@ -355,7 +410,7 @@ function StudentRows({ rows, compact }: { rows: AdminStudent[]; compact?: boolea
       <ul className="flex flex-col gap-2 sm:hidden">
         {rows.map((s) => (
           <li key={s.niat_id}>
-            <Link href={studentHref(s.niat_id)} className="block rounded-md border border-border p-3 hover:bg-muted/60">
+            <Link href={studentHref(s.niat_id, term)} className="block rounded-md border border-border p-3 hover:bg-muted/60">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <div className="font-medium">

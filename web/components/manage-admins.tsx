@@ -103,7 +103,7 @@ function CreateAdmin() {
   );
 }
 
-type Panel = "none" | "reset" | "edit" | "delete";
+type Panel = "none" | "reset" | "edit" | "delete" | "owner";
 
 function AdminRow({ admin: a, isMe, lastOwner }: { admin: AdminAccount; isMe: boolean; lastOwner: boolean }) {
   const qc = useQueryClient();
@@ -133,6 +133,18 @@ function AdminRow({ admin: a, isMe, lastOwner }: { admin: AdminAccount; isMe: bo
     mutationFn: () => adminsApi.remove(a.id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admins"] }),
     onError,
+  });
+  const [ownerPassword, setOwnerPassword] = useState("");
+  const makeOwner = useMutation({
+    mutationFn: () => adminsApi.makeOwner(a.id, ownerPassword),
+    onSuccess: () => {
+      setOwnerPassword("");
+      after(`${a.name || a.email} is now an Owner.`)();
+    },
+    onError: (e: Error) => {
+      setOwnerPassword("");
+      onError(e);
+    },
   });
   const emailChanged = email.trim().toLowerCase() !== a.email;
   const reset = useMutation({
@@ -180,10 +192,10 @@ function AdminRow({ admin: a, isMe, lastOwner }: { admin: AdminAccount; isMe: bo
         <Button
           variant="outline"
           size="sm"
-          disabled={update.isPending || (a.role === "owner" && lastOwner)}
-          onClick={() => update.mutate({ role: a.role === "owner" ? "admin" : "owner" })}
+          disabled={update.isPending || (a.role === "owner" && lastOwner) || (a.role !== "owner" && !a.active)}
+          onClick={() => (a.role === "owner" ? update.mutate({ role: "admin" }) : toggle("owner"))}
         >
-          {a.role === "owner" ? "Make regular admin" : "Make Owner"}
+          {a.role === "owner" ? "Make regular admin" : panel === "owner" ? "Cancel" : "Make Owner"}
         </Button>
         {!isMe && (
           <Button
@@ -222,6 +234,28 @@ function AdminRow({ admin: a, isMe, lastOwner }: { admin: AdminAccount; isMe: bo
               {isMe ? "You will sign in with the new email from now on." : "Changing the email signs this admin out; they sign in again with the new email."}
             </p>
           )}
+        </form>
+      )}
+      {panel === "owner" && (
+        <form
+          className="flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+          onSubmit={(e) => {
+            e.preventDefault();
+            makeOwner.mutate();
+          }}
+        >
+          <p>
+            An Owner can add, edit and delete admins and delete students. To make <b>{a.name || a.email}</b> an Owner, confirm with{" "}
+            <b>your own</b> password.
+          </p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <div className="flex-1">
+              <PasswordInput label="Your password" autoComplete="current-password" value={ownerPassword} onChange={setOwnerPassword} />
+            </div>
+            <Button type="submit" className="h-10" disabled={!ownerPassword || makeOwner.isPending}>
+              {makeOwner.isPending ? "Checking…" : "Make Owner"}
+            </Button>
+          </div>
         </form>
       )}
       {panel === "delete" && (

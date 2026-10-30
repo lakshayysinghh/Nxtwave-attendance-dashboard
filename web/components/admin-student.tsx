@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { TermPicker, useTermParam } from "@/components/admin-dashboard";
 import { PageHeading } from "@/components/admin-shell";
 import { RemoveStudentCard, StudentFormCard } from "@/components/student-form";
 import { StudentProfile, adminFields } from "@/components/student-lookup";
@@ -16,7 +17,8 @@ import { api } from "@/lib/api";
 export function AdminStudentPage({ niatId }: { niatId: string }) {
   const router = useRouter();
   const qc = useQueryClient();
-  const profile = useQuery({ queryKey: ["student", niatId], queryFn: () => api.adminStudent(niatId), retry: false });
+  const term = useTermParam();
+  const profile = useQuery({ queryKey: ["student", niatId, term], queryFn: () => api.adminStudent(niatId, term), retry: false });
   const saveRemark = async (ym: string, remark: string) => {
     await api.setRemark(niatId, ym, remark);
     await qc.invalidateQueries({ queryKey: ["student", niatId] });
@@ -32,6 +34,7 @@ export function AdminStudentPage({ niatId }: { niatId: string }) {
   return (
     <>
       <PageHeading title={p?.student.name ?? "Student"} description={p ? `${p.student.niat_id} · what this student sees, plus admin details` : niatId}>
+        <TermPicker />
         <Button variant="outline" onClick={back}>
           <ArrowLeft className="size-4" /> Back
         </Button>
@@ -65,7 +68,7 @@ export function AdminStudentPage({ niatId }: { niatId: string }) {
       )}
       {p && (
         <StudentProfile
-          key={p.student.niat_id}
+          key={`${p.student.niat_id}-${term}`}
           p={p}
           monthKey="admin-month"
           fetchMonth={(ym) => api.adminMonth(p.student.niat_id, ym)}

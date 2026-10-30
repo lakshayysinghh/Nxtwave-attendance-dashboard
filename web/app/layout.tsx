@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Attendance Dashboard",
+  title: "NxtWave Attendance Dashboard",
   description: "DSA attendance for BITS and CDU students",
 };
 

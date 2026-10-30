@@ -21,6 +21,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { createContext, useContext, useState } from "react";
 
 import { ChangePasswordCard, useAdminSession } from "@/components/auth";
+import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { api, type Me } from "@/lib/api";
 
@@ -111,8 +112,8 @@ function TopBar({ me, onMenu, onChangePassword }: { me: Me; onMenu: () => void; 
           <Menu className="size-5" />
         </button>
         <Link href="/admin" className="flex items-center gap-2">
-          <span className="flex size-8 items-center justify-center rounded-md bg-white text-sm font-bold text-primary">N</span>
-          <span className="hidden font-semibold tracking-tight sm:inline">Attendance Dashboard</span>
+          <Logo onDark />
+          <span className="hidden font-semibold tracking-tight sm:inline">NxtWave Attendance</span>
         </Link>
       </div>
       <div className="flex items-center gap-1.5 text-sm sm:gap-2">

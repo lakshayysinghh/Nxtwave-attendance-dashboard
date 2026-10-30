@@ -2,6 +2,7 @@ package http
 
 import (
 	"cmp"
+	"errors"
 	"net/http"
 	"regexp"
 	"slices"
@@ -67,8 +68,8 @@ type adminStudentJSON struct {
 	Demo      bool   `json:"demo"`
 }
 
-// GET /api/admin/students/{niat_id}: the same profile the student sees, for
-// any status, plus admin-only fields.
+// GET /api/admin/students/{niat_id}?term=: the same profile the student sees,
+// for any status and any term (default: the current term), plus admin-only fields.
 func (s *Server) handleAdminStudent(w http.ResponseWriter, r *http.Request) {
 	st, ok := s.loadStudent(w, r, true)
 	if !ok {
@@ -81,7 +82,15 @@ func (s *Server) handleAdminStudent(w http.ResponseWriter, r *http.Request) {
 	if st.DroppedOn.Valid {
 		out.DroppedOn = stats.DateKey(st.DroppedOn.Time)
 	}
-	resp, err := s.profile(r.Context(), st, out)
+	termID, ok := termParam(w, r)
+	if !ok {
+		return
+	}
+	resp, err := s.profile(r.Context(), st, out, termID)
+	if errors.Is(err, errNoTerm) {
+		writeError(w, http.StatusNotFound, "not_found", "No such term.", nil)
+		return
+	}
 	if err != nil {
 		s.internalError(w, "admin profile", err)
 		return
