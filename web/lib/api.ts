@@ -41,10 +41,24 @@ export type Profile = {
   today: string;
   summary: Summary;
   months: (Summary & { month: string })[];
+  placement: Placement;
+  /** Admin remarks by month (YYYY-MM). */
+  remarks: Record<string, string>;
+};
+
+/** Standing against the placement attendance threshold (95%). */
+export type Placement = {
+  threshold: number;
+  pct: number | null;
+  below: boolean;
+  /** Present days in a row needed to reach the threshold. */
+  days_needed: number;
+  months: { month: string; pct: number | null; below: boolean }[];
 };
 
 export type MonthDay = {
   date: string;
+  weekday: number; // 0 = Sunday
   kind: string;
   label: string;
   excluded: string;
@@ -134,6 +148,12 @@ export const api = {
   adminStudent: (id: string) => request<Profile>(`/api/admin/students/${encodeURIComponent(id)}`),
   adminMonth: (id: string, ym: string) => request<Month>(`/api/admin/students/${encodeURIComponent(id)}/month?ym=${ym}`),
   halls: () => request<{ halls: Hall[] }>("/api/admin/halls"),
+  /** Sets the student's remark for a month (YYYY-MM); an empty remark deletes it. */
+  setRemark: (id: string, ym: string, remark: string) =>
+    request<{ month: string; remark: string }>(`/api/admin/students/${encodeURIComponent(id)}/remarks/${ym}`, {
+      method: "PUT",
+      body: JSON.stringify({ remark }),
+    }),
   sheet: (date: string, hall: string) =>
     request<{ date: string; today: string; students: SheetRow[] }>(
       `/api/admin/attendance/sheet?${new URLSearchParams({ date, hall })}`,

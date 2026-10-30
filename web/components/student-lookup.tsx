@@ -1,12 +1,12 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { Legend, MarkChip, PctBadge, TermRange, bandInfo, fmtDate, fmtDay, fmtMonth } from "@/components/attendance-ui";
+import { Legend, PctBadge, TermRange, bandInfo, fmtDate, fmtDay, fmtMonth } from "@/components/attendance-ui";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { api, pctText, type Month, type MonthDay, type Profile } from "@/lib/api";
+import { api, pctText, type Month, type MonthDay, type Placement, type Profile } from "@/lib/api";
 
 const inputCls =
   "h-10 w-full rounded-md border border-input bg-white px-3 text-sm outline-none placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/15";
@@ -81,26 +81,28 @@ export function StudentLookup() {
 }
 
 /**
- * Everything a student sees about their attendance: header, term %, counts,
- * monthly summary and day-by-day history. Shared by the student view and the
- * admin student page, so the two always show the same numbers. extraFields
- * adds admin-only details to the header.
+ * Everything a student sees about their attendance: header, term %, placement
+ * cautions, counts, monthly summary and a month calendar. Shared by the
+ * student view and the admin student page, so the two always show the same
+ * numbers. extraFields adds admin-only details to the header; onSaveRemark
+ * lets admins edit the monthly remarks.
  */
 export function StudentProfile({
   p,
   fetchMonth,
   monthKey,
   extraFields = [],
+  onSaveRemark,
 }: {
   p: Profile;
   fetchMonth: (ym: string) => Promise<Month>;
   monthKey: string;
   extraFields?: { label: string; value: string }[];
+  onSaveRemark?: (ym: string, remark: string) => Promise<unknown>;
 }) {
   const [month, setMonth] = useState("");
   const ym = month || p.months.at(-1)?.month || p.today.slice(0, 7);
   const history = useQuery({ queryKey: [monthKey, p.student.niat_id, ym], queryFn: () => fetchMonth(ym) });
-  const days = (history.data?.days ?? []).filter((d) => d.date <= (history.data?.today ?? "")).reverse();
   const s = p.student;
 
   return (
@@ -139,18 +141,19 @@ export function StudentProfile({
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <PlacementCautions p={p} onSaveRemark={onSaveRemark} />
+
+      <div className="grid grid-cols-3 gap-3">
         <Tile label="Working days so far" value={p.summary.counted_days} />
         <Tile label="Days present" value={p.summary.days_attended} tone="text-green-700" />
         <Tile label="Days absent" value={p.summary.days_absent} tone="text-red-700" />
-        <Tile label="Days not marked" value={p.summary.not_marked_days} tone="text-slate-600" />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-5">
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Monthly summary</CardTitle>
-            <CardDescription>Select a month to see its history.</CardDescription>
+            <CardDescription>Select a month to see its calendar.</CardDescription>
           </CardHeader>
           <CardContent>
             <table className="w-full text-sm">
@@ -187,7 +190,7 @@ export function StudentProfile({
         <Card className="lg:col-span-3">
           <CardHeader>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <CardTitle>Attendance history</CardTitle>
+              <CardTitle>Attendance calendar</CardTitle>
               <select value={ym} onChange={(e) => setMonth(e.target.value)} className="h-9 rounded-md border border-input bg-white px-2 text-sm" aria-label="Month">
                 {p.months.map((m) => (
                   <option key={m.month} value={m.month}>
@@ -196,27 +199,178 @@ export function StudentProfile({
                 ))}
               </select>
             </div>
-            <CardDescription>Newest first.</CardDescription>
+            <CardDescription>{fmtMonth(ym)}</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
-            <Legend />
-            <ul className="divide-y divide-border rounded-md border border-border">
-              {days.map((d) => (
-                <li key={d.date} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 text-sm">
-                  <span className="w-28 font-medium">{fmtDay(d.date)}</span>
-                  {d.counted ? (
-                    <MarkChip mark={d.status} />
-                  ) : (
-                    <span className="text-xs text-muted-foreground italic">{nonCountedText(d)}</span>
-                  )}
-                </li>
-              ))}
-              {history.isSuccess && days.length === 0 && <li className="px-3 py-3 text-sm text-muted-foreground">No days yet.</li>}
-            </ul>
+            <Legend showNotMarked={false} />
+            {history.error ? (
+              <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                Couldn&apos;t load this month: {history.error.message}
+              </p>
+            ) : (
+              <MonthCalendar days={history.data?.days ?? []} today={history.data?.today ?? p.today} />
+            )}
           </CardContent>
         </Card>
       </div>
     </>
+  );
+}
+
+const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const cellTone: Record<"P" | "A", string> = {
+  P: "bg-green-50 text-green-800 ring-green-200",
+  A: "bg-red-50 text-red-800 ring-red-200",
+};
+
+/** One month as a Monday-first grid. Present and Absent days are coloured; unmarked days show only the date. */
+function MonthCalendar({ days, today }: { days: MonthDay[]; today: string }) {
+  if (days.length === 0) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  const lead = (days[0].weekday + 6) % 7;
+  return (
+    <div className="grid grid-cols-7 gap-1 text-center text-xs">
+      {weekdays.map((w) => (
+        <div key={w} className="pb-1 font-medium text-muted-foreground">
+          {w}
+        </div>
+      ))}
+      {Array.from({ length: lead }, (_, i) => (
+        <div key={`lead-${i}`} />
+      ))}
+      {days.map((d) => {
+        const future = d.date > today;
+        const mark = d.counted && !future ? d.status : null;
+        const note = d.counted ? "" : nonCountedText(d);
+        return (
+          <div
+            key={d.date}
+            title={`${fmtDay(d.date)}${mark ? ` · ${mark === "P" ? "Present" : "Absent"}` : note ? ` · ${note}` : ""}`}
+            className={`flex min-h-14 flex-col items-center justify-start gap-0.5 rounded-md p-1 ring-1 ring-inset ${
+              mark ? cellTone[mark] : d.counted ? "bg-white ring-border" : "bg-muted/60 text-muted-foreground ring-transparent"
+            } ${future ? "opacity-50" : ""} ${d.date === today ? "outline-2 outline-primary" : ""}`}
+          >
+            <span className="font-medium tabular-nums">{Number(d.date.slice(8))}</span>
+            {mark && <span className="text-sm font-semibold">{mark}</span>}
+            {note && <span className="line-clamp-2 text-[10px] leading-tight">{note}</span>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Placement caution below the percentage: the term against the 95% placement
+ * threshold, then each month with the admin's remark. Admins pass onSaveRemark
+ * to add or edit remarks; students only read them.
+ */
+function PlacementCautions({ p, onSaveRemark }: { p: Profile; onSaveRemark?: (ym: string, remark: string) => Promise<unknown> }) {
+  const pl = p.placement;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Placement cautions</CardTitle>
+        <CardDescription>Placements need at least {pl.threshold}% attendance, for the term and in every month.</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {pl.pct === null ? (
+          <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">No attendance marked yet.</p>
+        ) : pl.below ? (
+          <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+            <b>Caution:</b> overall attendance is {pctText(pl.pct)}, below {pl.threshold}%. Placement eligibility is at risk. Attend the next{" "}
+            <b>{pl.days_needed}</b> class day{pl.days_needed === 1 ? "" : "s"} without an absence to reach {pl.threshold}%.
+          </p>
+        ) : (
+          <p className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-900">
+            Overall attendance is {pctText(pl.pct)}: meets the {pl.threshold}% placement requirement.
+          </p>
+        )}
+        <ul className="divide-y divide-border rounded-md border border-border">
+          {pl.months.map((m) => (
+            <MonthCaution key={m.month} m={m} threshold={pl.threshold} remark={p.remarks[m.month] ?? ""} onSave={onSaveRemark} />
+          ))}
+          {pl.months.length === 0 && <li className="px-3 py-2 text-sm text-muted-foreground">No months in the term yet.</li>}
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MonthCaution({
+  m,
+  threshold,
+  remark,
+  onSave,
+}: {
+  m: Placement["months"][number];
+  threshold: number;
+  remark: string;
+  onSave?: (ym: string, remark: string) => Promise<unknown>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(remark);
+  const save = useMutation({ mutationFn: () => onSave!(m.month, text.trim()), onSuccess: () => setEditing(false) });
+  return (
+    <li className="flex flex-col gap-1.5 px-3 py-2 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="w-32 font-medium">{fmtMonth(m.month)}</span>
+        <PctBadge pct={m.pct} band={m.pct === null ? "none" : m.below ? "below_60" : "75_plus"} />
+        {m.pct === null ? (
+          <span className="text-xs text-muted-foreground">No marks</span>
+        ) : m.below ? (
+          <span className="text-xs font-medium text-red-700">Below {threshold}%: caution</span>
+        ) : (
+          <span className="text-xs text-green-700">OK</span>
+        )}
+        {onSave && !editing && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="ml-auto"
+            onClick={() => {
+              setText(remark);
+              setEditing(true);
+            }}
+          >
+            {remark ? "Edit remark" : "Add remark"}
+          </Button>
+        )}
+      </div>
+      {remark && !editing && (
+        <p className="rounded bg-muted/50 px-2 py-1 text-xs">
+          <span className="font-medium">Remark:</span> {remark}
+        </p>
+      )}
+      {editing && (
+        <form
+          className="flex flex-col gap-2 sm:flex-row"
+          onSubmit={(e) => {
+            e.preventDefault();
+            save.mutate();
+          }}
+        >
+          <input
+            className={inputCls}
+            value={text}
+            maxLength={500}
+            onChange={(e) => setText(e.target.value)}
+            placeholder={`Remark for ${fmtMonth(m.month)}, e.g. medical leave approved`}
+            aria-label={`Remark for ${fmtMonth(m.month)}`}
+            autoFocus
+          />
+          <div className="flex gap-2">
+            <Button type="submit" className="h-10" disabled={save.isPending}>
+              {save.isPending ? "Saving…" : text.trim() ? "Save" : "Remove"}
+            </Button>
+            <Button type="button" variant="outline" className="h-10" onClick={() => setEditing(false)}>
+              Cancel
+            </Button>
+          </div>
+          {save.error && <span className="text-xs text-red-700">{save.error.message}</span>}
+        </form>
+      )}
+    </li>
   );
 }
 

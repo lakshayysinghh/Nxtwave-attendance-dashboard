@@ -80,6 +80,14 @@ type Student struct {
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
 }
 
+type StudentRemark struct {
+	NiatID    string             `json:"niat_id"`
+	Month     pgtype.Date        `json:"month"`
+	Remark    string             `json:"remark"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	UpdatedBy pgtype.Int8        `json:"updated_by"`
+}
+
 type Term struct {
 	ID        int64       `json:"id"`
 	Name      string      `json:"name"`

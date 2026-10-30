@@ -6,7 +6,13 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
+	"time"
+	"unicode/utf8"
 
+	"github.com/go-chi/chi/v5"
+
+	"attendance-dashboard/api/internal/db"
 	"attendance-dashboard/api/internal/stats"
 )
 
@@ -88,4 +94,43 @@ func (s *Server) handleAdminStudentMonth(w http.ResponseWriter, r *http.Request)
 	if st, ok := s.loadStudent(w, r, true); ok {
 		s.month(w, r, st)
 	}
+}
+
+// PUT /api/admin/students/{niat_id}/remarks/{ym} {remark}: sets the student's
+// remark for that month (YYYY-MM); an empty remark deletes it. Remarks are
+// shown to the student with their placement caution.
+func (s *Server) handleSetRemark(w http.ResponseWriter, r *http.Request) {
+	st, ok := s.loadStudent(w, r, true)
+	if !ok {
+		return
+	}
+	month, err := time.Parse("2006-01", chi.URLParam(r, "ym"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "The month must look like 2026-09.", nil)
+		return
+	}
+	var req struct {
+		Remark string `json:"remark"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	remark := strings.TrimSpace(req.Remark)
+	if utf8.RuneCountInString(remark) > 500 {
+		writeError(w, http.StatusUnprocessableEntity, "invalid_remark", "A remark can be up to 500 characters.", nil)
+		return
+	}
+	first := pgDate(stats.Date(month.Year(), month.Month(), 1))
+	if remark == "" {
+		_, err = s.store.DeleteStudentRemark(r.Context(), db.DeleteStudentRemarkParams{NiatID: st.NiatID, Month: first})
+	} else {
+		err = s.store.UpsertStudentRemark(r.Context(), db.UpsertStudentRemarkParams{
+			NiatID: st.NiatID, Month: first, Remark: remark, UpdatedBy: adminFrom(r.Context()).ID,
+		})
+	}
+	if err != nil {
+		s.internalError(w, "save remark", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"month": month.Format("2006-01"), "remark": remark})
 }

@@ -27,6 +27,7 @@ type Querier interface {
 	DeleteMarks(ctx context.Context, arg DeleteMarksParams) (int64, error)
 	// Permanent: the student's attendance marks are deleted with them (ON DELETE CASCADE).
 	DeleteStudent(ctx context.Context, niatID string) (int64, error)
+	DeleteStudentRemark(ctx context.Context, arg DeleteStudentRemarkParams) (int64, error)
 	DeleteTerm(ctx context.Context, id int64) (int64, error)
 	EndSessions(ctx context.Context, id int64) error
 	GetAdminByEmail(ctx context.Context, email string) (Admin, error)
@@ -59,6 +60,7 @@ type Querier interface {
 	ListMarks(ctx context.Context, arg ListMarksParams) ([]ListMarksRow, error)
 	ListSections(ctx context.Context) ([]ListSectionsRow, error)
 	ListSettings(ctx context.Context) ([]Setting, error)
+	ListStudentRemarks(ctx context.Context, niatID string) ([]ListStudentRemarksRow, error)
 	// q matches part of the name or the start of the NIAT ID; empty filters match all.
 	// hall: NULL matches all; '' matches students with no hall.
 	ListStudentsForAdmin(ctx context.Context, arg ListStudentsForAdminParams) ([]ListStudentsForAdminRow, error)
@@ -95,6 +97,7 @@ type Querier interface {
 	// Student import: insert new IDs, update existing ones. NULL optional values
 	// (blank cells) keep what is stored; required fields always overwrite.
 	UpsertStudentFromImport(ctx context.Context, arg UpsertStudentFromImportParams) error
+	UpsertStudentRemark(ctx context.Context, arg UpsertStudentRemarkParams) error
 }
 
 var _ Querier = (*Queries)(nil)

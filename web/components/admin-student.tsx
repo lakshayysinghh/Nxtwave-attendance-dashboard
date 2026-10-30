@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Pencil, UserMinus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -15,7 +15,13 @@ import { api } from "@/lib/api";
 /** The admin view of one student: exactly what the student sees, plus admin-only fields. */
 export function AdminStudentPage({ niatId }: { niatId: string }) {
   const router = useRouter();
+  const qc = useQueryClient();
   const profile = useQuery({ queryKey: ["student", niatId], queryFn: () => api.adminStudent(niatId), retry: false });
+  const saveRemark = async (ym: string, remark: string) => {
+    await api.setRemark(niatId, ym, remark);
+    await qc.invalidateQueries({ queryKey: ["student", niatId] });
+    qc.invalidateQueries({ queryKey: ["profile"] });
+  };
   const p = profile.data;
 
   const [panel, setPanel] = useState<"none" | "edit" | "remove">("none");
@@ -64,6 +70,7 @@ export function AdminStudentPage({ niatId }: { niatId: string }) {
           monthKey="admin-month"
           fetchMonth={(ym) => api.adminMonth(p.student.niat_id, ym)}
           extraFields={adminFields(p.student)}
+          onSaveRemark={saveRemark}
         />
       )}
     </>

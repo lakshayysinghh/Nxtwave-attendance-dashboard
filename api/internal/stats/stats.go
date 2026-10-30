@@ -360,3 +360,44 @@ func BandOf(pct *float64) Band {
 		return BandHigh
 	}
 }
+
+// PlacementThreshold is the attendance percentage needed for placement eligibility.
+const PlacementThreshold = 95
+
+// PlacementMonth is one month's standing against the placement threshold.
+type PlacementMonth struct {
+	Month string   `json:"month"` // YYYY-MM
+	Pct   *float64 `json:"pct"`   // nil when nothing is marked that month
+	Below bool     `json:"below"`
+}
+
+// Placement is a student's standing against PlacementThreshold, for the
+// term and for each month so far.
+type Placement struct {
+	Threshold  int              `json:"threshold"`
+	Pct        *float64         `json:"pct"`
+	Below      bool             `json:"below"`
+	DaysNeeded int              `json:"days_needed"` // present days in a row needed to reach the threshold
+	Months     []PlacementMonth `json:"months"`
+}
+
+// PlacementStatus compares the term summary and each month with
+// PlacementThreshold. The comparison uses the exact counts, not the rounded
+// %, so 94.96% is still below 95%. Periods with nothing marked are never below.
+func PlacementStatus(term Summary, months []MonthSummary) Placement {
+	p := Placement{Threshold: PlacementThreshold, Pct: term.Pct, Below: belowPlacement(term), Months: []PlacementMonth{}}
+	if p.Below {
+		// Smallest n with (P+n)·100 >= T·(P+A+n).
+		gap := PlacementThreshold*(term.Present+term.Absent) - 100*term.Present
+		p.DaysNeeded = (gap + (100 - PlacementThreshold) - 1) / (100 - PlacementThreshold)
+	}
+	for _, m := range months {
+		p.Months = append(p.Months, PlacementMonth{Month: m.Month, Pct: m.Pct, Below: belowPlacement(m.Summary)})
+	}
+	return p
+}
+
+func belowPlacement(s Summary) bool {
+	marked := s.Present + s.Absent
+	return marked > 0 && 100*s.Present < PlacementThreshold*marked
+}

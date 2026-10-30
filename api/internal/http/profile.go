@@ -45,6 +45,10 @@ type profileResponse struct {
 	Today   string               `json:"today"`
 	Summary stats.Summary        `json:"summary"`
 	Months  []stats.MonthSummary `json:"months"`
+	// Placement is the standing against the placement threshold; Remarks are
+	// admin remarks by month (YYYY-MM).
+	Placement stats.Placement   `json:"placement"`
+	Remarks   map[string]string `json:"remarks"`
 }
 
 type dayJSON struct {
@@ -111,6 +115,15 @@ func (s *Server) profile(ctx context.Context, st db.GetStudentRow, student any) 
 	resp.Summary = stats.Summarize(stu, from, to, r.cal, r.terms, marks[st.NiatID], r.today)
 	if r.has {
 		resp.Months = stats.Months(stu, r.term, r.cal, r.terms, marks[st.NiatID], r.today)
+	}
+	resp.Placement = stats.PlacementStatus(resp.Summary, resp.Months)
+	remarks, err := s.store.ListStudentRemarks(ctx, st.NiatID)
+	if err != nil {
+		return profileResponse{}, err
+	}
+	resp.Remarks = make(map[string]string, len(remarks))
+	for _, rm := range remarks {
+		resp.Remarks[rm.Month.Time.Format("2006-01")] = rm.Remark
 	}
 	return resp, nil
 }

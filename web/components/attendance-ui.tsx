@@ -57,12 +57,13 @@ export function MarkChip({ mark, short }: { mark: Mark; short?: boolean }) {
   );
 }
 
-export function Legend() {
+/** Mark legend; the student calendar leaves out "Not marked", which it does not show. */
+export function Legend({ showNotMarked = true }: { showNotMarked?: boolean }) {
   return (
     <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
       <span className="flex items-center gap-1.5"><MarkChip mark="P" short /> P – Present</span>
       <span className="flex items-center gap-1.5"><MarkChip mark="A" short /> A – Absent</span>
-      <span className="flex items-center gap-1.5"><MarkChip mark={null} short /> Not marked</span>
+      {showNotMarked && <span className="flex items-center gap-1.5"><MarkChip mark={null} short /> Not marked</span>}
     </p>
   );
 }
