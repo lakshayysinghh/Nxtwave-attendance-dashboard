@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { PageHelp } from "@/components/help/page-help";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ApiError, api, type Me } from "@/lib/api";
 
@@ -99,7 +100,10 @@ export function LoginForm() {
     <div className="flex flex-1 items-start justify-center pt-6 sm:pt-12">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle className="text-lg">Admin sign-in</CardTitle>
+          <div className="flex items-center gap-1.5">
+            <CardTitle className="text-lg">Admin sign-in</CardTitle>
+            <PageHelp id="login" role="admin" />
+          </div>
           <CardDescription>Use the email and password your Owner gave you.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">

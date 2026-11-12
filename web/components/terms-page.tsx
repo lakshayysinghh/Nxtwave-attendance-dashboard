@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
+import { PageHeading } from "@/components/admin-shell";
 import { fmtDate } from "@/components/attendance-ui";
 import { inputCls } from "@/components/auth";
 import { Button } from "@/components/ui/button";
@@ -12,12 +13,11 @@ import { termsApi, type TermRow } from "@/lib/api";
 export function TermsPage() {
   return (
     <>
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-primary">Terms</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Attendance is counted only inside a term. Terms cannot overlap, and the current term is used for all percentages.
-        </p>
-      </div>
+      <PageHeading
+        title="Terms"
+        help="terms"
+        description="Attendance is counted only inside a term. Terms cannot overlap, and the current term is used for all percentages."
+      />
       <TermList />
       <TermForm />
     </>

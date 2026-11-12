@@ -34,7 +34,7 @@ export function AdminStudentPage({ niatId }: { niatId: string }) {
 
   return (
     <>
-      <PageHeading title={p?.student.name ?? "Student"} description={p ? `${p.student.niat_id} · what this student sees, plus admin details` : niatId}>
+      <PageHeading help="student-page" title={p?.student.name ?? "Student"} description={p ? `${p.student.niat_id} · what this student sees, plus admin details` : niatId}>
         <TermPicker />
         <Button variant="outline" onClick={back}>
           <ArrowLeft className="size-4" /> Back

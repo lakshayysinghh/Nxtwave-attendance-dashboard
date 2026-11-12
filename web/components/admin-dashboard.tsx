@@ -142,7 +142,7 @@ export function OverviewPage() {
 
   return (
     <>
-      <PageHeading title="Overview" description={<TermLine />}>
+      <PageHeading title="Overview" description={<TermLine />} help="overview">
         <TermPicker />
         <QuickAction href="/admin/attendance" icon={ClipboardCheck} label="Mark attendance" primary />
         <QuickAction href="/admin/imports?tab=students" icon={Upload} label="Import students" />
@@ -265,7 +265,7 @@ export function StudentsPage() {
 
   return (
     <>
-      <PageHeading title="Students" description={<TermLine />}>
+      <PageHeading title="Students" description={<TermLine />} help="students">
         <TermPicker />
         <Button onClick={() => setAdding((v) => !v)}>
           <UserPlus className="size-4" /> {adding ? "Close" : "Add student"}

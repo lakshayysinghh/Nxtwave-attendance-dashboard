@@ -42,7 +42,7 @@ func (m markedDates) has(date, appliesTo string) bool {
 }
 
 // calendarEntry is one entry to save. Counts must already follow the day
-// type rules (working: true; holiday, exam: false; event: as chosen).
+// type rules (working: true; holiday, exam, exam_prep: false; event: as chosen).
 type calendarEntry struct {
 	Date      time.Time
 	AppliesTo string
@@ -243,8 +243,8 @@ func (s *Server) handleSaveCalendarEntries(w http.ResponseWriter, r *http.Reques
 			fail(err.Error())
 		case applies != "ALL" && !degrees[applies]:
 			fail("Applies to must be All or a degree (BITS, CDU).")
-		case kind != "working" && kind != "holiday" && kind != "exam" && kind != "event":
-			fail("Day type must be working, holiday, exam or event.")
+		case kind != "working" && kind != "holiday" && kind != "exam" && kind != "exam_prep" && kind != "event":
+			fail("Day type must be working, holiday, exam, exam_prep or event.")
 		case len(label) > 100:
 			fail("The label can be up to 100 characters.")
 		case seen[e.Date+"|"+applies]:

@@ -24,7 +24,11 @@ var calendarHeaders = map[string]string{
 	"degree": "applies_to", "label": "label", "counts": "counts",
 }
 
-var dayTypes = map[string]bool{"working": true, "holiday": true, "exam": true, "event": true}
+// dayTypes maps the Day Type cell (lower case, single spaces) to the stored type.
+var dayTypes = map[string]string{
+	"working": "working", "holiday": "holiday", "exam": "exam", "event": "event",
+	"exam preparation": "exam_prep", "exam prep": "exam_prep", "exam_prep": "exam_prep", "exam-prep": "exam_prep",
+}
 
 var yesNo = map[string]bool{"yes": true, "y": true, "true": true, "1": true, "no": false, "n": false, "false": false, "0": false}
 
@@ -33,7 +37,7 @@ var yesNo = map[string]bool{"yes": true, "y": true, "true": true, "1": true, "no
 // the caller against the degrees table; "All" becomes "ALL".
 //
 // Counts only matters for events (default Yes). Working days always count
-// and holidays and exams never do, so a contradicting Counts value there is
+// and holidays, exams and exam preparation days never do, so a contradicting Counts value there is
 // ignored with a warning.
 func ParseCalendar(table [][]string, degrees map[string]bool) ([]CalendarRow, error) {
 	if len(table) == 0 {
@@ -84,11 +88,13 @@ func ParseCalendar(table [][]string, degrees map[string]bool) ([]CalendarRow, er
 			r.Date, r.DateText = d, d.Format(time.DateOnly)
 		}
 
-		r.DayType = strings.ToLower(cell(raw, "day_type"))
-		if r.DayType == "" {
+		typed := strings.ToLower(cell(raw, "day_type"))
+		r.DayType = dayTypes[typed]
+		if typed == "" {
 			fail("Day Type is missing.")
-		} else if !dayTypes[r.DayType] {
-			fail(fmt.Sprintf("Day Type %q is not valid (use Working, Holiday, Exam or Event).", cell(raw, "day_type")))
+		} else if r.DayType == "" {
+			r.DayType = typed
+			fail(fmt.Sprintf("Day Type %q is not valid (use Working, Holiday, Exam, Exam Preparation or Event).", cell(raw, "day_type")))
 		}
 
 		applies := strings.ToUpper(cell(raw, "applies_to"))

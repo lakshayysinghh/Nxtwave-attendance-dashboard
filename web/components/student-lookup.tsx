@@ -15,7 +15,9 @@ import {
   fmtMonth,
   periodStateLabel,
 } from "@/components/attendance-ui";
+import { DayPopover, StudentDayDetails } from "@/components/day-details";
 import { Button } from "@/components/ui/button";
+import { PageHelp } from "@/components/help/page-help";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, pctText, type Month, type MonthDay, type Period, type PeriodKind, type Placement, type Profile } from "@/lib/api";
 
@@ -26,6 +28,7 @@ function nonCountedText(d: MonthDay) {
   if (d.label) return d.label;
   if (d.kind === "sunday") return "Sunday";
   if (d.kind === "holiday") return "Holiday";
+  if (d.kind === "exam_prep") return "Exam preparation";
   if (d.excluded === "before_join") return "Before joining";
   if (d.excluded === "after_drop") return "After dropping";
   if (d.excluded === "outside_term") return "Outside semester";
@@ -48,7 +51,10 @@ export function StudentLookup() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-primary">Check your attendance</h1>
+        <div className="flex items-center gap-1.5">
+          <h1 className="text-2xl font-semibold tracking-tight text-primary">Check your attendance</h1>
+          <PageHelp id="student-view" role="student" />
+        </div>
         <p className="mt-1 text-sm text-muted-foreground">Enter your exact NIAT ID to see your attendance percentage and history.</p>
       </div>
 
@@ -220,12 +226,13 @@ export function StudentProfile({
           <CardContent className="flex flex-col gap-3">
             <Legend showNotMarked={false} />
             <CategoryLegend days={history.data?.days ?? []} />
+            <p className="text-xs text-muted-foreground">Hover over or tap a date to see what was on that day.</p>
             {history.error ? (
               <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
                 Couldn&apos;t load this month: {history.error.message}
               </p>
             ) : (
-              <MonthCalendar days={history.data?.days ?? []} today={history.data?.today ?? p.today} />
+              <MonthCalendar days={history.data?.days ?? []} today={history.data?.today ?? p.today} degree={s.degree} periods={p.periods} />
             )}
           </CardContent>
         </Card>
@@ -240,8 +247,11 @@ const cellTone: Record<"P" | "A", string> = {
   A: "bg-red-50 text-red-800 ring-red-200",
 };
 
-/** One month as a Monday-first grid. Present and Absent days are coloured; unmarked days show only the date. */
-function MonthCalendar({ days, today }: { days: MonthDay[]; today: string }) {
+/**
+ * One month as a Monday-first grid. Present and Absent days are coloured;
+ * unmarked days show only the date. Hovering or tapping a date shows its details.
+ */
+function MonthCalendar({ days, today, degree, periods }: { days: MonthDay[]; today: string; degree: string; periods: Period[] }) {
   if (days.length === 0) return <p className="text-sm text-muted-foreground">Loading…</p>;
   const lead = (days[0].weekday + 6) % 7;
   return (
@@ -262,18 +272,25 @@ function MonthCalendar({ days, today }: { days: MonthDay[]; today: string }) {
         // A category colours the day when its mark counts (or will, for a planned internship day).
         const catTone = cat && (mark || (future && d.counted));
         return (
-          <div
+          <DayPopover
             key={d.date}
-            title={`${fmtDay(d.date)}${cat ? ` · ${cat.label}` : ""}${mark ? ` · ${mark === "P" ? "Present" : "Absent"}` : note ? ` · ${note}` : ""}`}
-            className={`flex min-h-14 flex-col items-center justify-start gap-0.5 rounded-md p-1 ring-1 ring-inset ${
-              catTone ? cat.cls : mark ? cellTone[mark] : d.counted ? "bg-white ring-border" : "bg-muted/60 text-muted-foreground ring-transparent"
-            } ${future ? "opacity-50" : ""} ${d.date === today ? "outline-2 outline-primary" : ""}`}
+            trigger={
+              <button
+                type="button"
+                aria-label={`${fmtDay(d.date)}${cat ? `, ${cat.label}` : ""}${mark ? `, ${mark === "P" ? "Present" : "Absent"}` : note ? `, ${note}` : ""}. Show details`}
+                className={`flex min-h-14 w-full cursor-pointer flex-col items-center justify-start gap-0.5 rounded-md p-1 ring-1 ring-inset hover:ring-primary/50 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none data-[popup-open]:ring-2 data-[popup-open]:ring-primary ${
+                  catTone ? cat.cls : mark ? cellTone[mark] : d.counted ? "bg-white ring-border" : "bg-muted/60 text-muted-foreground ring-transparent"
+                } ${future ? "opacity-50" : ""} ${d.date === today ? "outline-2 outline-primary" : ""}`}
+              >
+                <span className="font-medium tabular-nums">{Number(d.date.slice(8))}</span>
+                {mark && <span className="text-sm font-semibold">{mark}</span>}
+                {cat && <span className="line-clamp-2 text-[10px] font-medium leading-tight">{cat.short}</span>}
+                {note && !cat && <span className="line-clamp-2 text-[10px] leading-tight">{note}</span>}
+              </button>
+            }
           >
-            <span className="font-medium tabular-nums">{Number(d.date.slice(8))}</span>
-            {mark && <span className="text-sm font-semibold">{mark}</span>}
-            {cat && <span className="line-clamp-2 text-[10px] font-medium leading-tight">{cat.short}</span>}
-            {note && !cat && <span className="line-clamp-2 text-[10px] leading-tight">{note}</span>}
-          </div>
+            <StudentDayDetails d={d} degree={degree} periods={periods} today={today} />
+          </DayPopover>
         );
       })}
     </div>

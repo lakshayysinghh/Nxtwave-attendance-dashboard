@@ -22,7 +22,7 @@ export function ImportsPage() {
   ];
   return (
     <>
-      <PageHeading title="Imports" description="Upload a .xlsx or .csv sheet, check the preview, then confirm. Nothing is saved before you confirm." />
+      <PageHeading title="Imports" help="imports" description="Upload a .xlsx or .csv sheet, check the preview, then confirm. Nothing is saved before you confirm." />
       <div className="inline-flex self-start overflow-hidden rounded-md ring-1 ring-input" role="tablist" aria-label="Import type">
         {tabs.map((t) => (
           <button

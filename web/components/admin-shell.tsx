@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   CalendarDays,
   CalendarRange,
+  CircleHelp,
   ClipboardCheck,
   GraduationCap,
   KeyRound,
@@ -21,6 +22,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { createContext, useContext, useState } from "react";
 
 import { ChangePasswordCard, useAdminSession } from "@/components/auth";
+import { PageHelp } from "@/components/help/page-help";
+import type { GuideId } from "@/components/help/guides";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { api, type Me } from "@/lib/api";
@@ -44,6 +47,7 @@ const nav: NavItem[] = [
   { href: "/admin/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/admin/terms", label: "Terms", icon: CalendarRange },
   { href: "/admin/admins", label: "Manage Admins", icon: ShieldCheck, ownerOnly: true },
+  { href: "/admin/help", label: "Help & Guide", icon: CircleHelp },
 ];
 
 /**
@@ -176,11 +180,26 @@ function SideNav({ me, onNavigate }: { me: Me; onNavigate?: () => void }) {
   );
 }
 
-export function PageHeading({ title, description, children }: { title: string; description?: React.ReactNode; children?: React.ReactNode }) {
+/** help is the page's guide; it adds the ⓘ button beside the title. */
+export function PageHeading({
+  title,
+  description,
+  help,
+  children,
+}: {
+  title: string;
+  description?: React.ReactNode;
+  help?: GuideId;
+  children?: React.ReactNode;
+}) {
+  const role = useContext(AdminContext)?.role;
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-primary">{title}</h1>
+        <div className="flex items-center gap-1.5">
+          <h1 className="text-2xl font-semibold tracking-tight text-primary">{title}</h1>
+          {help && <PageHelp id={help} role={role === "owner" ? "owner" : "admin"} />}
+        </div>
         {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
       </div>
       {children && <div className="flex flex-wrap gap-2">{children}</div>}

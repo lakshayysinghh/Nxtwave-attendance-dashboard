@@ -503,7 +503,7 @@ export function Count({ label, n, cls }: { label: string; n: number; cls: string
 }
 
 const scopeLabel = (a: string) => (a === "ALL" ? "All" : a);
-const kindLabel: Record<string, string> = { working: "Working", holiday: "Holiday", exam: "Exam", event: "Event" };
+const kindLabel: Record<string, string> = { working: "Working", holiday: "Holiday", exam: "Exam", exam_prep: "Exam preparation", event: "Event" };
 
 /**
  * Dates between the first and last date column that have no column (Sundays
@@ -513,7 +513,7 @@ const kindLabel: Record<string, string> = { working: "Working", holiday: "Holida
 function MissingDateSuggestions({ missing, onSaved }: { missing: MissingDate[]; onSaved: () => void }) {
   // Start with the dates that have no calendar entry yet.
   const [selected, setSelected] = useState<Set<string>>(() => new Set(missing.filter((m) => m.entries.length === 0).map((m) => m.date)));
-  const [dayType, setDayType] = useState<"holiday" | "exam">("holiday");
+  const [dayType, setDayType] = useState<"holiday" | "exam" | "exam_prep">("holiday");
   const [appliesTo, setAppliesTo] = useState("ALL");
   const [label, setLabel] = useState("Holiday");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -584,20 +584,22 @@ function MissingDateSuggestions({ missing, onSaved }: { missing: MissingDate[]; 
             className="h-9 rounded-md border border-input bg-white px-2 text-sm"
             value={dayType}
             onChange={(e) => {
-              const v = e.target.value as "holiday" | "exam";
+              const v = e.target.value as "holiday" | "exam" | "exam_prep";
               setDayType(v);
               if (v === "exam" && appliesTo === "ALL") setAppliesTo("BITS");
-              if (label === "Holiday" || label === "Exam") setLabel(v === "exam" ? "Exam" : "Holiday");
+              if (label === "Holiday" || label === "Exam" || label === "Exam preparation")
+                setLabel(v === "exam" ? "Exam" : v === "exam_prep" ? "Exam preparation" : "Holiday");
             }}
           >
             <option value="holiday">Holiday</option>
             <option value="exam">Exam (one degree)</option>
+            <option value="exam_prep">Exam preparation</option>
           </select>
         </label>
         <label className="flex flex-col gap-1 text-xs font-medium">
           Applies to
           <select className="h-9 rounded-md border border-input bg-white px-2 text-sm" value={appliesTo} onChange={(e) => setAppliesTo(e.target.value)}>
-            {dayType === "holiday" && <option value="ALL">All degrees</option>}
+            {dayType !== "exam" && <option value="ALL">All degrees</option>}
             <option value="BITS">BITS only</option>
             <option value="CDU">CDU only</option>
           </select>

@@ -34,8 +34,10 @@ const (
 	KindWorking Kind = "working"
 	KindHoliday Kind = "holiday"
 	KindExam    Kind = "exam"
-	KindEvent   Kind = "event"
-	KindSunday  Kind = "sunday"
+	// KindExamPrep is exam preparation leave; like a holiday it never counts.
+	KindExamPrep Kind = "exam_prep"
+	KindEvent    Kind = "event"
+	KindSunday   Kind = "sunday"
 )
 
 // Exclusion is why an otherwise counted date does not count for a student.
@@ -97,9 +99,13 @@ type Student struct {
 
 // Day is a date resolved for one student.
 type Day struct {
-	Date      time.Time
-	Kind      Kind
-	Label     string
+	Date  time.Time
+	Kind  Kind
+	Label string
+	// AppliesTo is the scope of the calendar entry that decided Kind: the
+	// student's degree code, "ALL", or "" when no entry applies (the
+	// default Sunday / working-day rule). Display only; no rule uses it.
+	AppliesTo string
 	Excluded  Exclusion
 	Counted   bool // true only when the day counts and is not excluded
 	dayCounts bool
@@ -118,9 +124,9 @@ func ResolveDay(d time.Time, s Student, cal Calendar, terms []Term, today time.T
 	day := Day{Date: d}
 	entries := cal.byDate[DateKey(d)]
 	if e, ok := entries[s.Degree]; ok {
-		day.Kind, day.Label, day.dayCounts = e.DayType, e.Label, entryCounts(e)
+		day.Kind, day.Label, day.AppliesTo, day.dayCounts = e.DayType, e.Label, e.AppliesTo, entryCounts(e)
 	} else if e, ok := entries["ALL"]; ok {
-		day.Kind, day.Label, day.dayCounts = e.DayType, e.Label, entryCounts(e)
+		day.Kind, day.Label, day.AppliesTo, day.dayCounts = e.DayType, e.Label, e.AppliesTo, entryCounts(e)
 	} else if d.Weekday() == time.Sunday {
 		day.Kind, day.dayCounts = KindSunday, false
 	} else {
@@ -141,8 +147,8 @@ func ResolveDay(d time.Time, s Student, cal Calendar, terms []Term, today time.T
 	return day
 }
 
-// entryCounts: working always counts, holiday and exam never do, an event
-// follows its own Counts flag.
+// entryCounts: working always counts, holiday, exam and exam preparation
+// never do, an event follows its own Counts flag.
 func entryCounts(e CalendarEntry) bool {
 	switch e.DayType {
 	case KindWorking:

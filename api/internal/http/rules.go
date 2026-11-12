@@ -173,6 +173,8 @@ func notCountedReason(day stats.Day) string {
 		return when + " is a Sunday."
 	case stats.KindHoliday:
 		return when + " is a holiday" + labelSuffix(day.Label) + "."
+	case stats.KindExamPrep:
+		return when + " is exam preparation leave" + labelSuffix(day.Label) + "."
 	case stats.KindExam:
 		return when + " is an exam day" + labelSuffix(day.Label) + "."
 	case stats.KindEvent:

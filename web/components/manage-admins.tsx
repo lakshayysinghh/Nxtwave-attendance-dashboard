@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { useCurrentAdmin } from "@/components/admin-shell";
+import { PageHeading, useCurrentAdmin } from "@/components/admin-shell";
 import { PasswordInput, inputCls, passwordRules } from "@/components/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,12 +25,11 @@ function OwnerView({ me }: { me: Me }) {
 
   return (
     <>
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-primary">Manage admins</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Create admin accounts and share the initial password privately. New admins must choose their own password at first sign-in.
-        </p>
-      </div>
+      <PageHeading
+        title="Manage admins"
+        help="admins"
+        description="Create admin accounts and share the initial password privately. New admins must choose their own password at first sign-in."
+      />
       <CreateAdmin />
       <Card>
         <CardHeader>

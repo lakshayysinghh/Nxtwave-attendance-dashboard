@@ -5,7 +5,9 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { studentHref } from "@/components/admin-dashboard";
+import { PageHeading } from "@/components/admin-shell";
 import { categoryInfo, fmtDate, fmtMonth, periodStateLabel } from "@/components/attendance-ui";
+import { AdminDayDetails, DayPopover } from "@/components/day-details";
 import { inputCls } from "@/components/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,6 +17,7 @@ const kindStyle: Record<CalendarDay["kind"], { label: string; cls: string }> = {
   working: { label: "Working", cls: "bg-white" },
   holiday: { label: "Holiday", cls: "bg-slate-100" },
   exam: { label: "Exam", cls: "bg-amber-50" },
+  exam_prep: { label: "Exam preparation", cls: "bg-rose-50" },
   event: { label: "Event", cls: "bg-blue-50" },
   sunday: { label: "Sunday", cls: "bg-slate-50" },
 };
@@ -62,17 +65,20 @@ export function CalendarPage() {
     enabled: !!first,
     placeholderData: (p) => p,
   });
-  const internsOn = (date: string) => (interns.data?.internships ?? []).filter((i) => i.start <= date && date <= i.end).length;
+  const internsOn = (date: string) => (interns.data?.internships ?? []).filter((i) => i.start <= date && date <= i.end);
 
   return (
     <>
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-primary">Calendar</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Mon–Sat are working days and Sundays are off unless you add an entry. A degree&rsquo;s own entry wins over an &ldquo;All&rdquo; entry. Days
-          outside every term never count.
-        </p>
-      </div>
+      <PageHeading
+        title="Calendar"
+        help="calendar"
+        description={
+          <>
+            Mon–Sat are working days and Sundays are off unless you add an entry. A degree&rsquo;s own entry wins over an &ldquo;All&rdquo; entry.
+            Days outside every term never count.
+          </>
+        }
+      />
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
@@ -119,45 +125,53 @@ export function CalendarPage() {
               {days.map((d) => {
                 const selected = from && to && d.date >= from && d.date <= to;
                 const others = d.entries.filter((e) => e.applies_to !== view);
+                const onIntern = internsOn(d.date);
                 return (
-                  <button
+                  <DayPopover
                     key={d.date}
-                    type="button"
-                    onClick={() => pick(d)}
-                    className={`flex min-h-20 flex-col items-start gap-0.5 rounded-md border p-1.5 text-left ${kindStyle[d.kind].cls} ${
-                      selected ? "border-primary ring-2 ring-primary" : "border-border hover:border-primary/50"
-                    } ${d.in_term ? "" : "opacity-50"} ${d.date === month.data?.today ? "outline outline-1 outline-offset-1 outline-primary" : ""}`}
+                    trigger={
+                      <button
+                        type="button"
+                        onClick={() => pick(d)}
+                        className={`flex min-h-20 flex-col items-start gap-0.5 rounded-md border p-1.5 text-left ${kindStyle[d.kind].cls} ${
+                          selected ? "border-primary ring-2 ring-primary" : "border-border hover:border-primary/50"
+                        } ${d.in_term ? "" : "opacity-50"} ${d.date === month.data?.today ? "outline outline-1 outline-offset-1 outline-primary" : ""}`}
+                      >
+                        <span className="font-semibold">{Number(d.date.slice(8))}</span>
+                        {d.kind !== "working" && <span className="font-medium">{kindStyle[d.kind].label}</span>}
+                        {d.label && <span className="line-clamp-2 text-[11px] leading-tight text-slate-700">{d.label}</span>}
+                        {!d.in_term ? (
+                          <span className="text-[11px] text-muted-foreground">Outside term</span>
+                        ) : (
+                          !d.counted && d.kind === "event" && <span className="text-[11px] text-muted-foreground">Not counted</span>
+                        )}
+                        {others.map((e) => (
+                          <span key={e.applies_to} className="text-[10px] text-muted-foreground">
+                            {viewLabel(e.applies_to)}: {kindStyle[e.day_type].label}
+                          </span>
+                        ))}
+                        {onIntern.length > 0 && (
+                          <span className="mt-auto flex items-center gap-1 text-[10px] font-medium text-violet-800">
+                            <span className={`inline-block size-2 rounded-full ${categoryInfo.INTERNSHIP.dot}`} />
+                            {onIntern.length} in internship
+                          </span>
+                        )}
+                      </button>
+                    }
                   >
-                    <span className="font-semibold">{Number(d.date.slice(8))}</span>
-                    {d.kind !== "working" && <span className="font-medium">{kindStyle[d.kind].label}</span>}
-                    {d.label && <span className="line-clamp-2 text-[11px] leading-tight text-slate-700">{d.label}</span>}
-                    {!d.in_term ? (
-                      <span className="text-[11px] text-muted-foreground">Outside term</span>
-                    ) : (
-                      !d.counted && d.kind === "event" && <span className="text-[11px] text-muted-foreground">Not counted</span>
-                    )}
-                    {others.map((e) => (
-                      <span key={e.applies_to} className="text-[10px] text-muted-foreground">
-                        {viewLabel(e.applies_to)}: {kindStyle[e.day_type].label}
-                      </span>
-                    ))}
-                    {internsOn(d.date) > 0 && (
-                      <span className="mt-auto flex items-center gap-1 text-[10px] font-medium text-violet-800">
-                        <span className={`inline-block size-2 rounded-full ${categoryInfo.INTERNSHIP.dot}`} />
-                        {internsOn(d.date)} in internship
-                      </span>
-                    )}
-                  </button>
+                    <AdminDayDetails d={d} view={view} interns={onIntern} />
+                  </DayPopover>
                 );
               })}
             </div>
             <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-              {(["working", "holiday", "exam", "event", "sunday"] as const).map((k) => (
+              {(["working", "holiday", "exam", "exam_prep", "event", "sunday"] as const).map((k) => (
                 <span key={k} className="flex items-center gap-1.5">
                   <span className={`inline-block size-3 rounded-sm border border-border ${kindStyle[k].cls}`} /> {kindStyle[k].label}
                 </span>
               ))}
               <span>Faded = outside any term</span>
+              <span>Hover over or tap a date for its full details</span>
             </p>
           </CardContent>
         </Card>
@@ -340,6 +354,7 @@ function EntryEditor({
             <select className={inputCls} value={dayType} onChange={(e) => setDayType(e.target.value as DayType)}>
               <option value="holiday">Holiday (not counted)</option>
               <option value="exam">Exam (not counted)</option>
+              <option value="exam_prep">Exam preparation (not counted)</option>
               <option value="event">Event</option>
               <option value="working">Working (counted, e.g. a make-up Sunday)</option>
             </select>

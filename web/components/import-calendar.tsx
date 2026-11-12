@@ -14,7 +14,7 @@ const actionStyle: Record<CalendarImportRow["action"], { label: string; cls: str
   unchanged: { label: "Unchanged", cls: "bg-slate-100 text-slate-600 ring-slate-200" },
   error: { label: "Error", cls: "bg-red-50 text-red-800 ring-red-200" },
 };
-const typeLabel: Record<string, string> = { working: "Working", holiday: "Holiday", exam: "Exam", event: "Event" };
+const typeLabel: Record<string, string> = { working: "Working", holiday: "Holiday", exam: "Exam", exam_prep: "Exam preparation", event: "Event" };
 
 export function ImportCalendar() {
   const qc = useQueryClient();

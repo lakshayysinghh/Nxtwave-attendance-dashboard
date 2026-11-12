@@ -56,13 +56,16 @@ type profileResponse struct {
 }
 
 type dayJSON struct {
-	Date     string  `json:"date"`
-	Weekday  int     `json:"weekday"` // 0 = Sunday
-	Kind     string  `json:"kind"`
-	Label    string  `json:"label"`
-	Excluded string  `json:"excluded"`
-	Counted  bool    `json:"counted"`
-	Status   *string `json:"status"` // "P", "A" or null; null on days that do not count
+	Date    string `json:"date"`
+	Weekday int    `json:"weekday"` // 0 = Sunday
+	Kind    string `json:"kind"`
+	Label   string `json:"label"`
+	// AppliesTo is the scope of the calendar entry that decided the day:
+	// the student's degree, "ALL", or "" for the default rule.
+	AppliesTo string  `json:"applies_to"`
+	Excluded  string  `json:"excluded"`
+	Counted   bool    `json:"counted"`
+	Status    *string `json:"status"` // "P", "A" or null; null on days that do not count
 	// Category is INTERNSHIP or REGISTRATION_PENDING when the day's mark
 	// carries one (also on days that do not count), else "".
 	Category string `json:"category"`
@@ -178,7 +181,7 @@ func (s *Server) month(w http.ResponseWriter, r *http.Request, st db.GetStudentR
 	}
 	for i, d := range days {
 		resp.Days[i] = dayJSON{
-			Date: stats.DateKey(d.Date), Weekday: int(d.Date.Weekday()), Kind: string(d.Kind), Label: d.Label,
+			Date: stats.DateKey(d.Date), Weekday: int(d.Date.Weekday()), Kind: string(d.Kind), Label: d.Label, AppliesTo: d.AppliesTo,
 			Excluded: string(d.Excluded), Counted: d.Counted,
 			Status: markJSON(d.Status), Category: string(cats.of(st.NiatID, stats.DateKey(d.Date))),
 		}

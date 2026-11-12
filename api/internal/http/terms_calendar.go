@@ -233,14 +233,27 @@ type calendarEntryJSON struct {
 	Label     string `json:"label"`
 }
 
+// degreeDayJSON is how one degree's students see a date.
+type degreeDayJSON struct {
+	Degree    string `json:"degree"`
+	Kind      string `json:"kind"`
+	Label     string `json:"label"`
+	Counted   bool   `json:"counted"`
+	AppliesTo string `json:"applies_to"` // the entry that decided it: the degree, "ALL", or "" (default rule)
+}
+
 type calendarDayJSON struct {
-	Date    string              `json:"date"`
-	Weekday int                 `json:"weekday"` // 0 = Sunday
-	Kind    string              `json:"kind"`    // resolved for the view: working, holiday, exam, event, sunday
-	Label   string              `json:"label"`
-	InTerm  bool                `json:"in_term"`
-	Counted bool                `json:"counted"` // counts toward attendance for this view (ignoring join/drop dates)
-	Entries []calendarEntryJSON `json:"entries"` // stored entries on this date (every applies_to)
+	Date      string              `json:"date"`
+	Weekday   int                 `json:"weekday"` // 0 = Sunday
+	Kind      string              `json:"kind"`    // resolved for the view: working, holiday, exam, event, sunday
+	Label     string              `json:"label"`
+	AppliesTo string              `json:"applies_to"` // the entry that decided Kind for the view, or "" (default rule)
+	InTerm    bool                `json:"in_term"`
+	Counted   bool                `json:"counted"` // counts toward attendance for this view (ignoring join/drop dates)
+	Entries   []calendarEntryJSON `json:"entries"` // stored entries on this date (every applies_to)
+	// ByDegree resolves the date for every degree, so a degree-specific
+	// entry is never shown as applying to another degree.
+	ByDegree []degreeDayJSON `json:"by_degree"`
 }
 
 // GET /api/admin/calendar?ym=YYYY-MM&view=ALL|BITS|CDU: every day of the
@@ -295,9 +308,14 @@ func (s *Server) handleCalendarMonth(w http.ResponseWriter, r *http.Request) {
 		if entries == nil {
 			entries = []calendarEntryJSON{}
 		}
+		byDegree := make([]degreeDayJSON, 0, len(degrees))
+		for _, code := range sortedKeys(degrees) {
+			dd := stats.ResolveDay(d, stats.Student{Degree: code}, rl.cal, rl.terms, calendarEnd)
+			byDegree = append(byDegree, degreeDayJSON{Degree: code, Kind: string(dd.Kind), Label: dd.Label, Counted: dd.Counted, AppliesTo: dd.AppliesTo})
+		}
 		days = append(days, calendarDayJSON{
-			Date: stats.DateKey(d), Weekday: int(d.Weekday()), Kind: string(day.Kind), Label: day.Label,
-			InTerm: day.Excluded != stats.OutsideTerm, Counted: day.Counted, Entries: entries,
+			Date: stats.DateKey(d), Weekday: int(d.Weekday()), Kind: string(day.Kind), Label: day.Label, AppliesTo: day.AppliesTo,
+			InTerm: day.Excluded != stats.OutsideTerm, Counted: day.Counted, Entries: entries, ByDegree: byDegree,
 		})
 	}
 	codes := append([]string{"ALL"}, sortedKeys(degrees)...)
@@ -332,11 +350,11 @@ func (s *Server) handleSetCalendar(w http.ResponseWriter, r *http.Request) {
 	switch kind {
 	case stats.KindWorking:
 		counts = true
-	case stats.KindHoliday, stats.KindExam:
+	case stats.KindHoliday, stats.KindExam, stats.KindExamPrep:
 	case stats.KindEvent:
 		counts = in.Counts == nil || *in.Counts
 	default:
-		writeError(w, http.StatusUnprocessableEntity, "invalid_day_type", "Day type must be working, holiday, exam or event.", nil)
+		writeError(w, http.StatusUnprocessableEntity, "invalid_day_type", "Day type must be working, holiday, exam, exam_prep or event.", nil)
 		return
 	}
 	label := strings.Join(strings.Fields(in.Label), " ")

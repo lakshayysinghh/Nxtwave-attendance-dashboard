@@ -84,6 +84,8 @@ export type MonthDay = {
   weekday: number; // 0 = Sunday
   kind: string;
   label: string;
+  /** Scope of the calendar entry that decided the day: the student's degree, "ALL", or "" (default rule). */
+  applies_to: string;
   excluded: string;
   counted: boolean;
   status: Mark;
@@ -414,7 +416,7 @@ export const internshipsApi = {
 };
 
 export type TermRow = { id: number; name: string; start: string; end: string; is_current: boolean };
-export type DayType = "working" | "holiday" | "exam" | "event";
+export type DayType = "working" | "holiday" | "exam" | "exam_prep" | "event";
 
 export const termsApi = {
   list: () => request<{ terms: TermRow[]; today: string }>("/api/admin/terms"),
@@ -437,9 +439,13 @@ export type CalendarDay = {
   weekday: number;
   kind: DayType | "sunday";
   label: string;
+  /** The entry that decided the day for the view: a degree, "ALL", or "" (default rule). */
+  applies_to: string;
   in_term: boolean;
   counted: boolean;
   entries: CalendarEntry[];
+  /** How every degree's students see this date. */
+  by_degree: { degree: string; kind: DayType | "sunday"; label: string; counted: boolean; applies_to: string }[];
 };
 
 export const calendarApi = {
