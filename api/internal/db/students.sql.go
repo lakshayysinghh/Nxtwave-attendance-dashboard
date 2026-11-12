@@ -11,6 +11,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countMarksForStudents = `-- name: CountMarksForStudents :one
+SELECT count(*) FROM attendance WHERE niat_id = ANY($1::text[])
+`
+
+func (q *Queries) CountMarksForStudents(ctx context.Context, niatIds []string) (int64, error) {
+	row := q.db.QueryRow(ctx, countMarksForStudents, niatIds)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countStudentMarks = `-- name: CountStudentMarks :one
 SELECT count(*) FROM attendance WHERE niat_id = $1
 `
@@ -100,6 +111,32 @@ func (q *Queries) DeleteStudent(ctx context.Context, niatID string) (int64, erro
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const deleteStudentsByIDs = `-- name: DeleteStudentsByIDs :many
+DELETE FROM students WHERE niat_id = ANY($1::text[])
+RETURNING niat_id
+`
+
+// Permanent bulk delete; marks and remarks go with the students (ON DELETE CASCADE).
+func (q *Queries) DeleteStudentsByIDs(ctx context.Context, niatIds []string) ([]string, error) {
+	rows, err := q.db.Query(ctx, deleteStudentsByIDs, niatIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var niat_id string
+		if err := rows.Scan(&niat_id); err != nil {
+			return nil, err
+		}
+		items = append(items, niat_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getStudent = `-- name: GetStudent :one

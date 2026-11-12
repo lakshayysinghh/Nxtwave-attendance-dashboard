@@ -69,7 +69,7 @@ func ParseAttendance(table [][]string, today time.Time, columnDates map[int]time
 			if idCol < 0 {
 				idCol = i
 			}
-		case norm == "studentfullname" || norm == "name":
+		case norm == "studentname" || norm == "studentfullname" || norm == "name":
 			if nameCol < 0 {
 				nameCol = i
 			}

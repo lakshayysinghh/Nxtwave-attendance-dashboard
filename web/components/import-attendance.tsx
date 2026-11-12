@@ -72,9 +72,9 @@ export function ImportAttendance() {
       <CardHeader>
         <CardTitle>Import attendance</CardTitle>
         <CardDescription>
-          For sheets with attendance only: a sheet that also has the student columns can go to Import students, which saves both.
-          Upload a .xlsx or .csv file (max 10 MB) with a NIAT ID column and one column per date (19-Aug-2026, 19-Aug-26, 19/08/2026 or
-          2026-08-19). Values: Present, Absent, P, A, 1 or 0. Each value is the mark for that day. Blank cells change
+          Saves marks only, for students who already exist (to add or update students too, use Import students). Takes the same
+          sheet: NIAT ID, Student Name, Degree, Section, Hall No., Level, then one column per date (19-Aug-2026, 19-Aug-26,
+          19/08/2026 or 2026-08-19); only NIAT ID and the date columns are required. Values: Present, Absent, P, A, 1 or 0. Each value is the mark for that day. Blank cells change
           nothing; any other value is skipped for that cell only.{" "}
           <a href="/sample-attendance.csv" download className="font-medium text-primary underline">
             Download sample CSV

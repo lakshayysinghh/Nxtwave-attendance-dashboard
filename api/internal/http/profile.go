@@ -15,8 +15,10 @@ import (
 	"attendance-dashboard/api/internal/stats"
 )
 
-// niatIDPattern is the documented NIAT ID shape (docs/PLAN.md); demo IDs use N99.
-var niatIDPattern = regexp.MustCompile(`^N\d{2}H\d{2}A\d{4}$`)
+// niatIDPattern is the documented NIAT ID shape (docs/PLAN.md): the 7th
+// character is A or B. Migration 000009 stores the same pattern in
+// settings, which takes precedence. Demo IDs use N99.
+var niatIDPattern = regexp.MustCompile(`^N\d{2}H\d{2}[AB]\d{4}$`)
 
 func normaliseNiatID(s string) string { return strings.ToUpper(strings.TrimSpace(s)) }
 

@@ -6,13 +6,14 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { PageHeading } from "@/components/admin-shell";
+import { PageHeading, useCurrentAdmin } from "@/components/admin-shell";
 import { HealthStatus } from "@/components/health-status";
+import { markQueryKeys } from "@/components/import-attendance";
 import { StudentFormCard } from "@/components/student-form";
 import { Legend, PctBadge, TermRange, bandInfo, fmtDay } from "@/components/attendance-ui";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ApiError, api, pctText, termsApi, type AdminStudent, type Band, type Mark, type MarkInput } from "@/lib/api";
+import { ApiError, api, pctText, studentsApi, termsApi, type AdminStudent, type Band, type Mark, type MarkInput } from "@/lib/api";
 
 const inputCls =
   "h-10 rounded-md border border-input bg-white px-3 text-sm outline-none placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/15";
@@ -229,6 +230,10 @@ export function StudentsPage() {
   // The search box updates the URL as you type; keep its own state so typing stays smooth.
   const [q, setQ] = useState(params.get("q") ?? "");
   const [adding, setAdding] = useState(false);
+  // Owner only: NIAT IDs ticked for bulk delete. Kept across searches so you can
+  // collect students from several searches before deleting.
+  const isOwner = useCurrentAdmin().role === "owner";
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const setParam = (changes: Record<string, string | null>) => {
     const next = new URLSearchParams(params.toString());
@@ -330,7 +335,8 @@ export function StudentsPage() {
             {q && <> · search: “{q}”</>}
             {demoCount > 0 && <> · includes {demoCount} demo students (N99…)</>}
           </p>
-          <StudentRows rows={rows} />
+          {isOwner && selected.size > 0 && <BulkDeleteBar ids={[...selected]} onClear={() => setSelected(new Set())} />}
+          <StudentRows rows={rows} selection={isOwner ? { selected, onChange: setSelected } : undefined} />
           {list.isSuccess && rows.length === 0 && <p className="py-2 text-sm text-muted-foreground">No students match these filters.</p>}
         </CardContent>
       </Card>
@@ -356,16 +362,121 @@ function Attendance({ s }: { s: AdminStudent }) {
   return <PctBadge pct={s.summary.pct} band={s.band} />;
 }
 
+type Selection = { selected: Set<string>; onChange: (next: Set<string>) => void };
+
+/**
+ * Owner only: deletes the ticked students and all their marks. Confirming
+ * means typing "DELETE <count>", which the API checks again.
+ */
+function BulkDeleteBar({ ids, onClear }: { ids: string[]; onClear: () => void }) {
+  const qc = useQueryClient();
+  const [confirming, setConfirming] = useState(false);
+  const [confirm, setConfirm] = useState("");
+  const phrase = `DELETE ${ids.length}`;
+  const del = useMutation({
+    mutationFn: () => studentsApi.removeMany(ids, confirm),
+    onSuccess: () => {
+      for (const key of markQueryKeys) qc.invalidateQueries({ queryKey: [key] });
+      setConfirming(false);
+      setConfirm("");
+      onClear();
+    },
+  });
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-medium">
+          {ids.length} student{ids.length === 1 ? "" : "s"} selected
+        </span>
+        <Button variant="outline" size="sm" onClick={onClear} disabled={del.isPending}>
+          Clear selection
+        </Button>
+        {!confirming && (
+          <Button size="sm" className="bg-red-700 text-white hover:bg-red-800" onClick={() => setConfirming(true)}>
+            Delete selected…
+          </Button>
+        )}
+      </div>
+      {confirming && (
+        <>
+          <p>
+            Deletes these students and <b>all of their attendance marks</b> permanently. This cannot be undone (only a database backup brings
+            it back). Type <b className="font-mono">{phrase}</b> to confirm.
+          </p>
+          <p className="max-h-20 overflow-y-auto font-mono text-xs">{ids.join(", ")}</p>
+          <div className="flex flex-wrap items-end gap-2">
+            <input
+              className={`${inputCls} w-48 font-mono uppercase`}
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              aria-label={`Type ${phrase} to confirm`}
+              placeholder={phrase}
+            />
+            <Button
+              className="bg-red-700 text-white hover:bg-red-800"
+              disabled={confirm.trim().toUpperCase() !== phrase || del.isPending}
+              onClick={() => del.mutate()}
+            >
+              {del.isPending ? "Deleting…" : `Delete ${ids.length} and their marks`}
+            </Button>
+            <Button
+              variant="outline"
+              disabled={del.isPending}
+              onClick={() => {
+                setConfirming(false);
+                setConfirm("");
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </>
+      )}
+      {del.error && <p className="text-red-700">{del.error.message}</p>}
+    </div>
+  );
+}
+
 /** The student table (desktop) and stacked cards (phones). Names and NIAT IDs open the student. */
-function StudentRows({ rows, compact }: { rows: AdminStudent[]; compact?: boolean }) {
+function StudentRows({ rows, compact, selection }: { rows: AdminStudent[]; compact?: boolean; selection?: Selection }) {
   const term = useTermParam();
   const link = "hover:text-primary hover:underline";
+  const allShown = rows.length > 0 && !!selection && rows.every((s) => selection.selected.has(s.niat_id));
+  const toggle = (id: string) => {
+    if (!selection) return;
+    const next = new Set(selection.selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    selection.onChange(next);
+  };
+  const toggleAllShown = () => {
+    if (!selection) return;
+    const next = new Set(selection.selected);
+    for (const s of rows) {
+      if (allShown) next.delete(s.niat_id);
+      else next.add(s.niat_id);
+    }
+    selection.onChange(next);
+  };
+  const box = "size-4 accent-red-700";
   return (
     <>
+      {selection && rows.length > 0 && (
+        <label className="flex items-center gap-2 text-sm sm:hidden">
+          <input type="checkbox" className={box} checked={allShown} onChange={toggleAllShown} />
+          Select all {rows.length} shown
+        </label>
+      )}
       <div className="hidden overflow-x-auto rounded-md border border-border sm:block">
         <table className="w-full text-sm">
           <thead className="bg-muted text-left text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
+              {selection && (
+                <th className="w-8 px-3 py-2">
+                  <input type="checkbox" className={box} checked={allShown} onChange={toggleAllShown} aria-label={`Select all ${rows.length} shown`} />
+                </th>
+              )}
               <th className="px-3 py-2 font-medium">NIAT ID</th>
               <th className="px-3 py-2 font-medium">Name</th>
               <th className="px-3 py-2 font-medium">Degree</th>
@@ -380,6 +491,17 @@ function StudentRows({ rows, compact }: { rows: AdminStudent[]; compact?: boolea
           <tbody>
             {rows.map((s) => (
               <tr key={s.niat_id} className="border-t border-border hover:bg-muted/60">
+                {selection && (
+                  <td className="px-3">
+                    <input
+                      type="checkbox"
+                      className={box}
+                      checked={selection.selected.has(s.niat_id)}
+                      onChange={() => toggle(s.niat_id)}
+                      aria-label={`Select ${s.name}`}
+                    />
+                  </td>
+                )}
                 <td className={`px-3 font-mono text-xs ${compact ? "py-1.5" : "py-2"}`}>
                   <Link href={studentHref(s.niat_id, term)} className={link}>
                     {s.niat_id}
@@ -409,8 +531,17 @@ function StudentRows({ rows, compact }: { rows: AdminStudent[]; compact?: boolea
 
       <ul className="flex flex-col gap-2 sm:hidden">
         {rows.map((s) => (
-          <li key={s.niat_id}>
-            <Link href={studentHref(s.niat_id, term)} className="block rounded-md border border-border p-3 hover:bg-muted/60">
+          <li key={s.niat_id} className="flex items-start gap-2">
+            {selection && (
+              <input
+                type="checkbox"
+                className={`${box} mt-3.5 shrink-0`}
+                checked={selection.selected.has(s.niat_id)}
+                onChange={() => toggle(s.niat_id)}
+                aria-label={`Select ${s.name}`}
+              />
+            )}
+            <Link href={studentHref(s.niat_id, term)} className="block flex-1 rounded-md border border-border p-3 hover:bg-muted/60">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <div className="font-medium">

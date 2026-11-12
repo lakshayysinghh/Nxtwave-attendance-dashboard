@@ -93,3 +93,11 @@ DELETE FROM students WHERE niat_id = $1;
 
 -- name: CountStudentMarks :one
 SELECT count(*) FROM attendance WHERE niat_id = $1;
+
+-- name: CountMarksForStudents :one
+SELECT count(*) FROM attendance WHERE niat_id = ANY(sqlc.arg(niat_ids)::text[]);
+
+-- name: DeleteStudentsByIDs :many
+-- Permanent bulk delete; marks and remarks go with the students (ON DELETE CASCADE).
+DELETE FROM students WHERE niat_id = ANY(sqlc.arg(niat_ids)::text[])
+RETURNING niat_id;

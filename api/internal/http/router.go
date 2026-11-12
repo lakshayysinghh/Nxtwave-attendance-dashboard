@@ -87,6 +87,7 @@ func (s *Server) Routes() http.Handler {
 			r.Get("/students/{niat_id}", s.handleAdminStudent)
 			r.Put("/students/{niat_id}", s.handleUpdateStudent)
 			r.With(s.requireOwner).Delete("/students/{niat_id}", s.handleDeleteStudent)
+			r.With(s.requireOwner).Post("/students/bulk-delete", s.handleBulkDeleteStudents)
 			r.Get("/students/{niat_id}/month", s.handleAdminStudentMonth)
 			r.Put("/students/{niat_id}/remarks/{ym}", s.handleSetRemark)
 			r.Get("/halls", s.handleListHalls)

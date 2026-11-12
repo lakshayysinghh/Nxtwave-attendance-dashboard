@@ -13,6 +13,7 @@ type Querier interface {
 	CountAttendanceBetween(ctx context.Context, arg CountAttendanceBetweenParams) (int64, error)
 	// Dates in the range that already have marks for students the entry applies to.
 	CountMarkedDatesForDegree(ctx context.Context, arg CountMarkedDatesForDegreeParams) (int64, error)
+	CountMarksForStudents(ctx context.Context, niatIds []string) (int64, error)
 	CountStudentMarks(ctx context.Context, niatID string) (int64, error)
 	// Returns no row when the email is already taken.
 	CreateAdmin(ctx context.Context, arg CreateAdminParams) (Admin, error)
@@ -28,6 +29,8 @@ type Querier interface {
 	// Permanent: the student's attendance marks are deleted with them (ON DELETE CASCADE).
 	DeleteStudent(ctx context.Context, niatID string) (int64, error)
 	DeleteStudentRemark(ctx context.Context, arg DeleteStudentRemarkParams) (int64, error)
+	// Permanent bulk delete; marks and remarks go with the students (ON DELETE CASCADE).
+	DeleteStudentsByIDs(ctx context.Context, niatIds []string) ([]string, error)
 	DeleteTerm(ctx context.Context, id int64) (int64, error)
 	EndSessions(ctx context.Context, id int64) error
 	GetAdminByEmail(ctx context.Context, email string) (Admin, error)

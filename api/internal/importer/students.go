@@ -71,6 +71,7 @@ const (
 
 var studentHeaders = map[string]string{
 	"niatid":             colNiatID,
+	"studentname":        colName,
 	"studentfullname":    colName,
 	"name":               colName,
 	"degree":             colDegree,
@@ -83,7 +84,7 @@ var studentHeaders = map[string]string{
 }
 
 var requiredHeaders = []struct{ key, label string }{
-	{colNiatID, "NIAT ID"}, {colName, "Student Full Name"}, {colDegree, "Degree"}, {colSection, "Section"},
+	{colNiatID, "NIAT ID"}, {colName, "Student Name"}, {colDegree, "Degree"}, {colSection, "Section"},
 }
 
 // normaliseHeader ignores case, spaces, dots and underscores: "Hall No." == "hall no".
@@ -164,7 +165,7 @@ func ParseStudents(table [][]string, niatPattern *regexp.Regexp, degrees map[str
 		case r.NiatID == "":
 			r.fail("NIAT ID is missing.")
 		case !niatPattern.MatchString(r.NiatID):
-			r.fail(fmt.Sprintf("NIAT ID %q does not match the expected format (like N24H01A0598).", r.NiatID))
+			r.fail(fmt.Sprintf("NIAT ID %q does not match the expected format (like N24H01A0598 or N24H01B0225).", r.NiatID))
 		default:
 			if first, dup := seen[r.NiatID]; dup {
 				r.fail(fmt.Sprintf("Duplicate NIAT ID: already on row %d.", first))
@@ -173,7 +174,7 @@ func ParseStudents(table [][]string, niatPattern *regexp.Regexp, degrees map[str
 			}
 		}
 		if r.Name == "" {
-			r.fail("Student Full Name is missing.")
+			r.fail("Student Name is missing.")
 		}
 		switch {
 		case r.Degree == "":

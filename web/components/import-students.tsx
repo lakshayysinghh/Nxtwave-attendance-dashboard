@@ -77,10 +77,10 @@ export function ImportStudents() {
       <CardHeader>
         <CardTitle>Import students</CardTitle>
         <CardDescription>
-          Upload a .xlsx or .csv file with columns NIAT ID, Student Full Name, Degree, Section, Level, Hall No., Instructor Assigned and
-          optional Joined On. Existing students are matched by NIAT ID; blank optional cells keep the saved values. If the sheet also
-          has one column per date, its attendance is previewed and saved in the same step, so the full attendance sheet needs only
-          one upload.{" "}
+          Upload the attendance sheet (.xlsx or .csv) with columns NIAT ID, Student Name, Degree, Section, Hall No., Level, then one
+          column per date (19-Aug-2026). Date cells: Present, Absent, P, A, 1 or 0; blank changes nothing. Students and their marks
+          are previewed and saved in one step. Existing students are matched by NIAT ID; blank Hall No. or Level cells keep the saved
+          values.{" "}
           <a href="/sample-students.csv" download className="font-medium text-primary underline">
             Download sample CSV
           </a>

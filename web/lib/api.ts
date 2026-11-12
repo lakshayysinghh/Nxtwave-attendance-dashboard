@@ -304,6 +304,12 @@ export const studentsApi = {
       `/api/admin/students/${encodeURIComponent(id)}?${new URLSearchParams({ confirm })}`,
       { method: "DELETE" },
     ),
+  /** Owner only. Deletes many students and all their marks; confirm must be "DELETE <count>". */
+  removeMany: (niatIds: string[], confirm: string) =>
+    request<{ deleted: number; not_found: number; marks_deleted: number }>("/api/admin/students/bulk-delete", {
+      method: "POST",
+      body: JSON.stringify({ niat_ids: niatIds, confirm }),
+    }),
 };
 
 export type TermRow = { id: number; name: string; start: string; end: string; is_current: boolean };

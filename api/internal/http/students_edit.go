@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -136,7 +137,7 @@ func (s *Server) handleCreateStudent(w http.ResponseWriter, r *http.Request) {
 	id := normaliseNiatID(in.NiatID)
 	if !pattern.MatchString(id) {
 		writeError(w, http.StatusUnprocessableEntity, "validation_failed", "Some fields need fixing.",
-			fieldErrors{"niat_id": fmt.Sprintf("%q does not match the NIAT ID format (like N24H01A0598).", id)})
+			fieldErrors{"niat_id": fmt.Sprintf("%q does not match the NIAT ID format (like N24H01A0598 or N24H01B0225).", id)})
 		return
 	}
 	var created db.Student
@@ -229,4 +230,58 @@ func (s *Server) handleDeleteStudent(w http.ResponseWriter, r *http.Request) {
 	}
 	s.log.Info("student deleted", "admin_id", adminFrom(r.Context()).ID, "niat_id", st.NiatID, "marks_deleted", marks)
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": st.NiatID, "marks_deleted": marks})
+}
+
+// maxBulkDelete caps one bulk delete; it is above the whole student body (~1,100).
+const maxBulkDelete = 5000
+
+// POST /api/admin/students/bulk-delete {niat_ids, confirm} (Owner only):
+// deletes the listed students and all their marks. confirm must be
+// "DELETE <n>" where n is the number of IDs sent, so a stray request cannot
+// wipe students. IDs that don't exist are skipped and reported back.
+func (s *Server) handleBulkDeleteStudents(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		NiatIDs []string `json:"niat_ids"`
+		Confirm string   `json:"confirm"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "The request body is not valid JSON.", nil)
+		return
+	}
+	seen := make(map[string]bool, len(req.NiatIDs))
+	ids := make([]string, 0, len(req.NiatIDs))
+	for _, raw := range req.NiatIDs {
+		if id := normaliseNiatID(raw); id != "" && !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		writeError(w, http.StatusUnprocessableEntity, "no_students", "Select at least one student to delete.", nil)
+		return
+	}
+	if len(ids) > maxBulkDelete {
+		writeError(w, http.StatusUnprocessableEntity, "too_many", fmt.Sprintf("Delete at most %d students at a time.", maxBulkDelete), nil)
+		return
+	}
+	if want := fmt.Sprintf("DELETE %d", len(ids)); strings.ToUpper(strings.TrimSpace(req.Confirm)) != want {
+		writeError(w, http.StatusUnprocessableEntity, "confirm_required", fmt.Sprintf("Type %q to confirm the deletion.", want), nil)
+		return
+	}
+	marks, err := s.store.CountMarksForStudents(r.Context(), ids)
+	if err != nil {
+		s.internalError(w, "count marks", err)
+		return
+	}
+	deleted, err := s.store.DeleteStudentsByIDs(r.Context(), ids)
+	if err != nil {
+		s.internalError(w, "bulk delete students", err)
+		return
+	}
+	s.log.Info("students bulk deleted", "admin_id", adminFrom(r.Context()).ID, "requested", len(ids), "deleted", len(deleted), "marks_deleted", marks)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"deleted":       len(deleted),
+		"not_found":     len(ids) - len(deleted),
+		"marks_deleted": marks,
+	})
 }
