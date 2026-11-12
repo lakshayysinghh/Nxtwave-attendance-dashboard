@@ -76,18 +76,37 @@ func statsStudent(degree, status string, joinedOn, droppedOn pgtype.Date) stats.
 }
 
 func (s *Server) loadMarks(ctx context.Context, ids []string, from, to time.Time) (map[string]stats.Marks, error) {
-	rows, err := s.store.ListMarks(ctx, db.ListMarksParams{NiatIds: ids, FromDate: pgDate(from), ToDate: pgDate(to)})
+	marks, _, err := s.loadMarksWithCategories(ctx, s.store, ids, from, to)
+	return marks, err
+}
+
+// markCategories maps NIAT ID, then DateKey, to a mark's category; regular
+// marks are absent.
+type markCategories map[string]map[string]stats.Category
+
+func (c markCategories) of(id, key string) stats.Category { return c[id][key] }
+
+func (s *Server) loadMarksWithCategories(ctx context.Context, q db.Querier, ids []string, from, to time.Time) (map[string]stats.Marks, markCategories, error) {
+	rows, err := q.ListMarks(ctx, db.ListMarksParams{NiatIds: ids, FromDate: pgDate(from), ToDate: pgDate(to)})
 	if err != nil {
-		return nil, fmt.Errorf("list marks: %w", err)
+		return nil, nil, fmt.Errorf("list marks: %w", err)
 	}
 	out := make(map[string]stats.Marks, len(ids))
+	cats := markCategories{}
 	for _, m := range rows {
 		if out[m.NiatID] == nil {
 			out[m.NiatID] = stats.Marks{}
 		}
-		out[m.NiatID][stats.DateKey(m.Date.Time)] = statusFromDB(m.Status)
+		key := stats.DateKey(m.Date.Time)
+		out[m.NiatID][key] = statusFromDB(m.Status)
+		if m.Category != "" {
+			if cats[m.NiatID] == nil {
+				cats[m.NiatID] = map[string]stats.Category{}
+			}
+			cats[m.NiatID][key] = stats.Category(m.Category)
+		}
 	}
-	return out, nil
+	return out, cats, nil
 }
 
 func statusFromDB(s string) stats.Status {

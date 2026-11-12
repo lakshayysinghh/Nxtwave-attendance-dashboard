@@ -1,13 +1,15 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useState } from "react";
 
-import { fmtDate, fmtMonth } from "@/components/attendance-ui";
+import { studentHref } from "@/components/admin-dashboard";
+import { categoryInfo, fmtDate, fmtMonth, periodStateLabel } from "@/components/attendance-ui";
 import { inputCls } from "@/components/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { calendarApi, type CalendarDay, type DayType } from "@/lib/api";
+import { calendarApi, internshipsApi, type CalendarDay, type DayType, type InternshipListItem } from "@/lib/api";
 
 const kindStyle: Record<CalendarDay["kind"], { label: string; cls: string }> = {
   working: { label: "Working", cls: "bg-white" },
@@ -52,6 +54,15 @@ export function CalendarPage() {
 
   const days = month.data?.days ?? [];
   const lead = days.length ? days[0].weekday : 0;
+  const first = days[0]?.date ?? "";
+  const last = days.at(-1)?.date ?? "";
+  const interns = useQuery({
+    queryKey: ["internships", first, last],
+    queryFn: () => internshipsApi.list(first, last),
+    enabled: !!first,
+    placeholderData: (p) => p,
+  });
+  const internsOn = (date: string) => (interns.data?.internships ?? []).filter((i) => i.start <= date && date <= i.end).length;
 
   return (
     <>
@@ -130,6 +141,12 @@ export function CalendarPage() {
                         {viewLabel(e.applies_to)}: {kindStyle[e.day_type].label}
                       </span>
                     ))}
+                    {internsOn(d.date) > 0 && (
+                      <span className="mt-auto flex items-center gap-1 text-[10px] font-medium text-violet-800">
+                        <span className={`inline-block size-2 rounded-full ${categoryInfo.INTERNSHIP.dot}`} />
+                        {internsOn(d.date)} in internship
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -156,7 +173,85 @@ export function CalendarPage() {
           prefill={prefill.entry}
         />
       </div>
+
+      <InternshipsCard month={shown} data={interns.data} error={interns.error} />
     </>
+  );
+}
+
+/** Every internship that touches the shown month, for all students. */
+function InternshipsCard({
+  month,
+  data,
+  error,
+}: {
+  month: string;
+  data?: { today: string; current: number; internships: InternshipListItem[] };
+  error: Error | null;
+}) {
+  const [onlyCurrent, setOnlyCurrent] = useState(false);
+  const rows = (data?.internships ?? []).filter((i) => !onlyCurrent || i.current);
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle>Internships{month ? ` in ${fmtMonth(month)}` : ""}</CardTitle>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={onlyCurrent} onChange={(e) => setOnlyCurrent(e.target.checked)} />
+            Only students in internship today ({data?.current ?? 0})
+          </label>
+        </div>
+        <CardDescription>Internship days are marked Present. Assign, edit or cancel one from the student&rsquo;s page.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {error ? (
+          <p className="text-sm text-red-700">Couldn&apos;t load internships: {error.message}</p>
+        ) : rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{data ? "No internships here." : "Loading…"}</p>
+        ) : (
+          <div className="overflow-x-auto rounded-md border border-border">
+            <table className="w-full min-w-[600px] text-sm">
+              <thead className="bg-muted text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2 font-medium">Student</th>
+                  <th className="px-3 py-2 font-medium">NIAT ID</th>
+                  <th className="px-3 py-2 font-medium">Degree · Section · Hall</th>
+                  <th className="px-3 py-2 font-medium">Internship</th>
+                  <th className="px-3 py-2 font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((i) => (
+                  <tr key={i.id} className="border-t border-border">
+                    <td className="px-3 py-2 font-medium">
+                      <Link href={studentHref(i.niat_id)} className="hover:text-primary hover:underline">
+                        {i.name}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs">{i.niat_id}</td>
+                    <td className="px-3 py-2">
+                      {i.degree} · {i.section} · {i.hall_no || "No hall"}
+                    </td>
+                    <td className="px-3 py-2">
+                      {fmtDate(i.start)} – {fmtDate(i.end)}
+                    </td>
+                    <td className="px-3 py-2">
+                      <span
+                        className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${
+                          i.current ? categoryInfo.INTERNSHIP.cls : "bg-slate-100 text-slate-700 ring-slate-200"
+                        }`}
+                      >
+                        {periodStateLabel[i.state]}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

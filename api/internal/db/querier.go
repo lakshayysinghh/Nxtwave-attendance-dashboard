@@ -9,6 +9,7 @@ import (
 )
 
 type Querier interface {
+	CancelPeriod(ctx context.Context, arg CancelPeriodParams) (StudentPeriod, error)
 	ClearCurrentTerm(ctx context.Context, id int64) error
 	CountAttendanceBetween(ctx context.Context, arg CountAttendanceBetweenParams) (int64, error)
 	// Dates in the range that already have marks for students the entry applies to.
@@ -23,6 +24,9 @@ type Querier interface {
 	// Marks and imports they made keep their values; updated_by and uploaded_by become NULL.
 	DeleteAdmin(ctx context.Context, id int64) (int64, error)
 	DeleteCalendarRange(ctx context.Context, arg DeleteCalendarRangeParams) (int64, error)
+	// Removes one category's marks in a date range; marks of any other category
+	// (including regular marks set by hand) stay.
+	DeleteCategoryMarks(ctx context.Context, arg DeleteCategoryMarksParams) (int64, error)
 	DeleteDemoMarks(ctx context.Context) (int64, error)
 	DeleteDemoStudents(ctx context.Context) (int64, error)
 	DeleteMarks(ctx context.Context, arg DeleteMarksParams) (int64, error)
@@ -36,6 +40,7 @@ type Querier interface {
 	GetAdminByEmail(ctx context.Context, email string) (Admin, error)
 	GetAdminByID(ctx context.Context, id int64) (Admin, error)
 	GetMentorByName(ctx context.Context, arg GetMentorByNameParams) (Mentor, error)
+	GetPeriod(ctx context.Context, id int64) (StudentPeriod, error)
 	GetSetting(ctx context.Context, key string) (Setting, error)
 	GetStudent(ctx context.Context, niatID string) (GetStudentRow, error)
 	GetStudentsByIDs(ctx context.Context, niatIds []string) ([]Student, error)
@@ -44,14 +49,18 @@ type Querier interface {
 	InsertDegreeIfMissing(ctx context.Context, arg InsertDegreeIfMissingParams) error
 	// Seed only: keeps any mark that already exists.
 	InsertMarksIfMissing(ctx context.Context, arg InsertMarksIfMissingParams) (int64, error)
+	// Adds marks only on days that have none; existing marks are left as they are.
+	InsertMarksKeepExisting(ctx context.Context, arg InsertMarksKeepExistingParams) (int64, error)
 	InsertMentorIfMissing(ctx context.Context, arg InsertMentorIfMissingParams) error
 	// Startup: make sure OWNER_EMAIL exists. Never changes an existing admin
 	// (role, status or password), so in-app changes survive restarts.
 	InsertOwnerIfMissing(ctx context.Context, email string) error
+	InsertPeriod(ctx context.Context, arg InsertPeriodParams) (StudentPeriod, error)
 	// Seed only: never overwrites an existing student.
 	InsertStudentIfMissing(ctx context.Context, arg InsertStudentIfMissingParams) (int64, error)
 	// Seed only: adds the term unless one with the same name exists.
 	InsertTermIfMissing(ctx context.Context, arg InsertTermIfMissingParams) error
+	ListActivePeriodsForStudents(ctx context.Context, niatIds []string) ([]StudentPeriod, error)
 	ListActiveStudentsInSection(ctx context.Context, arg ListActiveStudentsInSectionParams) ([]Student, error)
 	ListAdmins(ctx context.Context) ([]Admin, error)
 	ListCalendarDays(ctx context.Context, arg ListCalendarDaysParams) ([]CalendarDay, error)
@@ -61,8 +70,12 @@ type Querier interface {
 	// Which degrees already have attendance on each date in the range.
 	ListMarkedDatesByDegree(ctx context.Context, arg ListMarkedDatesByDegreeParams) ([]ListMarkedDatesByDegreeRow, error)
 	ListMarks(ctx context.Context, arg ListMarksParams) ([]ListMarksRow, error)
+	// Not cancelled periods of one kind that touch from..to, with the student.
+	ListPeriodsOverlapping(ctx context.Context, arg ListPeriodsOverlappingParams) ([]ListPeriodsOverlappingRow, error)
 	ListSections(ctx context.Context) ([]ListSectionsRow, error)
 	ListSettings(ctx context.Context) ([]Setting, error)
+	// Every period of one student, cancelled ones included (history).
+	ListStudentPeriods(ctx context.Context, niatID string) ([]StudentPeriod, error)
 	ListStudentRemarks(ctx context.Context, niatID string) ([]ListStudentRemarksRow, error)
 	// q matches part of the name or the start of the NIAT ID; empty filters match all.
 	// hall: NULL matches all; '' matches students with no hall.
@@ -71,6 +84,8 @@ type Querier interface {
 	// Taken inside a transaction before changing any role or status, so two
 	// concurrent changes cannot both remove the last active Owner.
 	LockActiveOwners(ctx context.Context) ([]int64, error)
+	// Serialises period changes per student inside a transaction.
+	LockStudents(ctx context.Context, niatIds []string) ([]string, error)
 	MarkTermCurrent(ctx context.Context, id int64) (Term, error)
 	Ping(ctx context.Context) (int32, error)
 	// Public name search. Returns no NIAT IDs.
@@ -88,12 +103,16 @@ type Querier interface {
 	// Owner edit of name and email. A changed email ends that admin's sessions.
 	// A taken email fails on the unique constraint.
 	UpdateAdminProfile(ctx context.Context, arg UpdateAdminProfileParams) (Admin, error)
+	UpdatePeriod(ctx context.Context, arg UpdatePeriodParams) (StudentPeriod, error)
 	// Admin form: replace every editable field of one student (not the NIAT ID).
 	UpdateStudent(ctx context.Context, arg UpdateStudentParams) (Student, error)
 	UpdateTerm(ctx context.Context, arg UpdateTermParams) (Term, error)
 	// One entry per date in the range (optionally skipping Sundays); an existing
 	// entry for the same date and applies_to is replaced.
 	UpsertCalendarRange(ctx context.Context, arg UpsertCalendarRangeParams) (int64, error)
+	// categories: '' for a regular mark. A regular mark with the same status as
+	// the stored one keeps the stored category, so re-saving a day does not
+	// drop its INTERNSHIP or REGISTRATION_PENDING tag; a changed status clears it.
 	UpsertMarks(ctx context.Context, arg UpsertMarksParams) (int64, error)
 	// Makes OWNER_EMAIL an active owner on startup. Never demotes anyone else.
 	UpsertOwner(ctx context.Context, email string) (Admin, error)

@@ -3,7 +3,7 @@ import Link from "next/link";
 
 import { Logo } from "@/components/logo";
 
-import type { Band, Mark, Term } from "@/lib/api";
+import type { Band, Mark, Period, PeriodKind, Term } from "@/lib/api";
 
 export function SiteHeader({ active }: { active?: "student" | "admin" }) {
   const link = (href: string, label: string, on: boolean) => (
@@ -98,6 +98,45 @@ export function TermRange({ term }: { term: Term }) {
   return (
     <span>
       {term.name}: {fmtDate(term.start)} to {fmtDate(term.end)}
+    </span>
+  );
+}
+
+/** Display names and colours for the two attendance categories. */
+export const categoryInfo: Record<PeriodKind, { label: string; short: string; mark: string; cls: string; dot: string }> = {
+  INTERNSHIP: {
+    label: "Internship Period",
+    short: "Internship",
+    mark: "Present",
+    cls: "bg-violet-50 text-violet-800 ring-violet-200",
+    dot: "bg-violet-500",
+  },
+  REGISTRATION_PENDING: {
+    label: "Term 5 Registration Pending",
+    short: "Registration pending",
+    mark: "Absent",
+    cls: "bg-orange-50 text-orange-800 ring-orange-200",
+    dot: "bg-orange-500",
+  },
+};
+
+export const periodStateLabel: Record<Period["state"], string> = {
+  upcoming: "Upcoming",
+  active: "In progress",
+  ended: "Ended",
+  pending: "Still pending",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
+/** "12 Oct 2026 – 26 Oct 2026 · 15 days (5 attendance days)", plus registration completion. */
+export function PeriodDates({ p }: { p: Period }) {
+  return (
+    <span>
+      {fmtDate(p.start)} – {fmtDate(p.end)} · {p.calendar_days} day{p.calendar_days === 1 ? "" : "s"} ({p.attendance_days} attendance day
+      {p.attendance_days === 1 ? "" : "s"})
+      {p.kind === "REGISTRATION_PENDING" &&
+        (p.completed_on ? <> · registration completed by {fmtDate(p.completed_on)}</> : <> · not completed yet (last seen pending {fmtDate(p.end)})</>)}
     </span>
   );
 }

@@ -14,10 +14,14 @@ type DateColumn struct {
 	Date   time.Time `json:"-"`
 }
 
-// AttendanceCell is one non-blank mark: "P" or "A" for the whole day.
+// AttendanceCell is one recognised mark: "P" or "A" for the whole day, with
+// the category the value names ("" for a plain Present or Absent).
 type AttendanceCell struct {
-	Date   time.Time
-	Status string
+	Date     time.Time
+	Status   string
+	Category string
+	Mapped   bool   // the value was mapped by the admin (value map), not recognised
+	Raw      string // the value as written, for mapped cells
 }
 
 // AttendanceRow is one student row. Blank cells are left out (no change).
@@ -43,19 +47,53 @@ type AttendanceSheet struct {
 	BadColumns     []BadColumn // unreadable date headers not yet given a date
 	HeaderErrors   []string    // repeated dates; those columns are ignored
 	HeaderWarnings []string    // future dates; those columns are ignored
-	Rows           []AttendanceRow
+	// IgnoredColumns are headers that are neither a date nor a known student
+	// column; their cells are not read. Listed so nothing is dropped silently.
+	IgnoredColumns []string
+	// Unsupported counts each value that is not a mark and was not mapped,
+	// by the value as written (trimmed). Those cells are skipped.
+	Unsupported map[string]int
+	Rows        []AttendanceRow
 }
 
-var markValues = map[string]string{"present": "P", "p": "P", "1": "P", "absent": "A", "a": "A", "0": "A"}
+// Category values, as stored in attendance.category.
+const (
+	CategoryInternship          = "INTERNSHIP"
+	CategoryRegistrationPending = "REGISTRATION_PENDING"
+)
 
-// ParseAttendance reads the wide format from docs/PLAN.md: NIAT ID, then one
-// column per date. Headers without digits (Name, Section, ...) are ignored;
-// a header with digits that is not a readable date is listed in BadColumns.
-// Cell values Present/Absent/P/A/1/0 are accepted in any case; blank means
-// no change; any other value is skipped for that cell only.
+type markValue struct{ status, category string }
+
+// markValues are the recognised cell values, by NormaliseValue.
+var markValues = map[string]markValue{
+	"present": {"P", ""}, "p": {"P", ""}, "1": {"P", ""},
+	"absent": {"A", ""}, "a": {"A", ""}, "0": {"A", ""},
+	"internship period":           {"P", CategoryInternship},
+	"term 5 registration pending": {"A", CategoryRegistrationPending},
+}
+
+// NormaliseValue is how cell values are compared: trimmed, lower case,
+// runs of spaces as one. "  Internship   PERIOD " == "internship period".
+func NormaliseValue(v string) string { return strings.ToLower(strings.Join(strings.Fields(v), " ")) }
+
+// ParseAttendance is ParseAttendanceWith without a value map.
+func ParseAttendance(table [][]string, today time.Time, columnDates map[int]time.Time) (AttendanceSheet, error) {
+	return ParseAttendanceWith(table, today, columnDates, nil)
+}
+
+// ParseAttendanceWith reads the wide format from docs/PLAN.md: NIAT ID, then
+// one column per date. Known student columns (Name, Section, ...) are not
+// read here; other headers without digits are listed in IgnoredColumns; a
+// header with digits that is not a readable date is listed in BadColumns.
+// Recognised cell values (any case and spacing): Present/P/1, Absent/A/0,
+// "Internship Period" (Present, INTERNSHIP) and "Term 5 Registration
+// Pending" (Absent, REGISTRATION_PENDING). Blank means no change. valueMap
+// (by NormaliseValue, to "P" or "A") is the admin's mapping for other
+// values; any value still unknown is skipped for that cell only, counted in
+// Unsupported and listed in the row's Skipped, never guessed.
 // Date columns after today are reported and ignored. columnDates gives a
 // date to columns whose header is unreadable (by 0-based index); it may be nil.
-func ParseAttendance(table [][]string, today time.Time, columnDates map[int]time.Time) (AttendanceSheet, error) {
+func ParseAttendanceWith(table [][]string, today time.Time, columnDates map[int]time.Time, valueMap map[string]string) (AttendanceSheet, error) {
 	var sheet AttendanceSheet
 	if len(table) == 0 {
 		return sheet, errors.New("the file is empty")
@@ -95,6 +133,10 @@ func ParseAttendance(table [][]string, today time.Time, columnDates map[int]time
 			}
 			seenDates[key] = h
 			sheet.Dates = append(sheet.Dates, DateColumn{Index: i, Header: strings.TrimSpace(h), Date: d})
+		default:
+			if _, known := studentHeaders[norm]; !known && norm != "" {
+				sheet.IgnoredColumns = append(sheet.IgnoredColumns, strings.TrimSpace(h))
+			}
 		}
 	}
 	if idCol < 0 {
@@ -131,12 +173,20 @@ func ParseAttendance(table [][]string, today time.Time, columnDates map[int]time
 				r.Blank++
 				continue
 			}
-			status, ok := markValues[strings.ToLower(v)]
-			if !ok {
-				r.Skipped = append(r.Skipped, fmt.Sprintf("%s: %q is not a mark (Present, Absent, P, A, 1 or 0); left not marked.", dc.Date.Format("2 Jan"), v))
+			norm := NormaliseValue(v)
+			if mv, ok := markValues[norm]; ok {
+				r.Cells = append(r.Cells, AttendanceCell{Date: dc.Date, Status: mv.status, Category: mv.category})
 				continue
 			}
-			r.Cells = append(r.Cells, AttendanceCell{Date: dc.Date, Status: status})
+			if st := valueMap[norm]; st == "P" || st == "A" {
+				r.Cells = append(r.Cells, AttendanceCell{Date: dc.Date, Status: st, Mapped: true, Raw: v})
+				continue
+			}
+			if sheet.Unsupported == nil {
+				sheet.Unsupported = map[string]int{}
+			}
+			sheet.Unsupported[v]++
+			r.Skipped = append(r.Skipped, fmt.Sprintf("%s: %q is not a mark or a supported category; not saved. Map it or leave it out.", dc.Date.Format("2 Jan"), v))
 		}
 		sheet.Rows = append(sheet.Rows, r)
 	}

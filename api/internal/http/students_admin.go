@@ -86,7 +86,7 @@ func (s *Server) handleAdminStudent(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	resp, err := s.profile(r.Context(), st, out, termID)
+	resp, err := s.profile(r.Context(), st, out, termID, true)
 	if errors.Is(err, errNoTerm) {
 		writeError(w, http.StatusNotFound, "not_found", "No such term.", nil)
 		return

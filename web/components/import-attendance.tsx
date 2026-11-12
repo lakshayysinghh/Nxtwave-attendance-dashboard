@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRef, useState } from "react";
 
-import { fmtDate, fmtDay } from "@/components/attendance-ui";
+import { categoryInfo, fmtDate, fmtDay } from "@/components/attendance-ui";
 import { studentHref } from "@/components/admin-dashboard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,7 +27,13 @@ export const attendanceHasErrors = (p: AttendanceImportResult) =>
   p.summary.error_rows > 0 || p.header_errors.length > 0 || p.bad_columns.length > 0;
 
 /** Query keys that show marks; refreshed after an import saves. */
-export const markQueryKeys = ["students", "sheet", "profile", "month", "student", "admin-month", "halls"];
+export const markQueryKeys = ["students", "sheet", "profile", "month", "student", "admin-month", "halls", "periods", "internships"];
+
+/** The admin's mapping of unsupported values to Present or Absent. */
+export type ValueMap = Record<string, "P" | "A">;
+
+/** "and 2 internship / registration period(s)" for the saved message; "" when none. */
+export const periodsSaved = (n: number) => (n > 0 ? ` and ${n} internship / registration period${n === 1 ? "" : "s"}` : "");
 
 export function ImportAttendance() {
   const qc = useQueryClient();
@@ -35,6 +41,7 @@ export function ImportAttendance() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<AttendanceImportResult | null>(null);
   const [columnDates, setColumnDates] = useState<Record<number, string>>({});
+  const [valueMap, setValueMap] = useState<ValueMap>({});
   const [skipErrors, setSkipErrors] = useState(false);
   const [done, setDone] = useState("");
 
@@ -42,22 +49,30 @@ export function ImportAttendance() {
     setFile(null);
     setPreview(null);
     setColumnDates({});
+    setValueMap({});
     setSkipErrors(false);
     if (inputRef.current) inputRef.current.value = "";
   };
 
   const check = useMutation({
-    mutationFn: (v: { file: File; columnDates: Record<number, string> }) => importAttendance(v.file, { columnDates: v.columnDates }),
+    mutationFn: (v: { file: File; columnDates: Record<number, string>; valueMap: ValueMap }) =>
+      importAttendance(v.file, { columnDates: v.columnDates, valueMap: v.valueMap }),
     onSuccess: setPreview,
   });
   const recheck = (cd: Record<number, string>) => {
     setColumnDates(cd);
-    if (file) check.mutate({ file, columnDates: cd });
+    if (file) check.mutate({ file, columnDates: cd, valueMap });
+  };
+  const remap = (vm: ValueMap) => {
+    setValueMap(vm);
+    if (file) check.mutate({ file, columnDates, valueMap: vm });
   };
   const save = useMutation({
-    mutationFn: () => importAttendance(file!, { commit: true, skipErrors, columnDates }),
+    mutationFn: () => importAttendance(file!, { commit: true, skipErrors, columnDates, valueMap }),
     onSuccess: (res) => {
-      setDone(`Imported ${res.file_name}: saved ${res.saved} mark(s) for ${res.summary.students_affected} student(s).`);
+      setDone(
+        `Imported ${res.file_name}: saved ${res.saved} mark(s) for ${res.summary.students_affected} student(s)${periodsSaved(res.summary.periods_to_save)}.`,
+      );
       reset();
       for (const key of markQueryKeys) qc.invalidateQueries({ queryKey: [key] });
     },
@@ -66,6 +81,8 @@ export function ImportAttendance() {
   const s = preview?.summary;
   const hasErrors = !!preview && attendanceHasErrors(preview);
   const error = check.error ?? save.error;
+  const nothing = !!s && s.records_to_update === 0 && s.periods_to_save === 0;
+  const partial = !!preview && preview.unsupported.length > 0;
 
   return (
     <Card>
@@ -74,8 +91,9 @@ export function ImportAttendance() {
         <CardDescription>
           Saves marks only, for students who already exist (to add or update students too, use Import students). Takes the same
           sheet: NIAT ID, Student Name, Degree, Section, Hall No., Level, then one column per date (19-Aug-2026, 19-Aug-26,
-          19/08/2026 or 2026-08-19); only NIAT ID and the date columns are required. Values: Present, Absent, P, A, 1 or 0. Each value is the mark for that day. Blank cells change
-          nothing; any other value is skipped for that cell only.{" "}
+          19/08/2026 or 2026-08-19); only NIAT ID and the date columns are required. Values: Present, Absent, P, A, 1 or 0, plus
+          Internship Period (saved as Present) and Term 5 Registration Pending (saved as Absent). Blank cells change nothing. Any
+          other value (like #REF!) is listed in the preview and not saved unless you map it.{" "}
           <a href="/sample-attendance.csv" download className="font-medium text-primary underline">
             Download sample CSV
           </a>
@@ -92,6 +110,7 @@ export function ImportAttendance() {
               setFile(e.target.files?.[0] ?? null);
               setPreview(null);
               setColumnDates({});
+              setValueMap({});
               setDone("");
               check.reset();
               save.reset();
@@ -102,7 +121,7 @@ export function ImportAttendance() {
             variant="outline"
             className="sm:ml-auto"
             disabled={!file || check.isPending}
-            onClick={() => file && check.mutate({ file, columnDates })}
+            onClick={() => file && check.mutate({ file, columnDates, valueMap })}
           >
             {check.isPending ? "Checking…" : "Preview"}
           </Button>
@@ -113,7 +132,13 @@ export function ImportAttendance() {
 
         {preview && s && (
           <>
-            <AttendancePreview preview={preview} columnDates={columnDates} onColumnDates={recheck} />
+            <AttendancePreview
+              preview={preview}
+              columnDates={columnDates}
+              onColumnDates={recheck}
+              valueMap={valueMap}
+              onValueMap={remap}
+            />
 
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               {hasErrors ? (
@@ -122,14 +147,18 @@ export function ImportAttendance() {
                   Skip the rows and columns with errors and import the rest
                 </label>
               ) : (
-                <span className="text-sm text-muted-foreground">No errors found. Nothing is saved until you confirm.</span>
+                <span className="text-sm text-muted-foreground">
+                  {partial
+                    ? "Unsupported values above will not be saved. Map them, or continue with the valid data."
+                    : "No errors found. Nothing is saved until you confirm."}
+                </span>
               )}
               <div className="flex gap-2">
                 <Button variant="outline" onClick={reset}>
                   Cancel
                 </Button>
-                <Button disabled={s.records_to_update === 0 || (hasErrors && !skipErrors) || save.isPending} onClick={() => save.mutate()}>
-                  {save.isPending ? "Importing…" : s.records_to_update === 0 ? "Nothing to import" : "Confirm Import"}
+                <Button disabled={nothing || (hasErrors && !skipErrors) || save.isPending} onClick={() => save.mutate()}>
+                  {save.isPending ? "Importing…" : nothing ? "Nothing to import" : partial ? "Continue with valid data" : "Confirm Import"}
                 </Button>
               </div>
             </div>
@@ -151,10 +180,14 @@ export function AttendancePreview({
   preview,
   columnDates,
   onColumnDates,
+  valueMap,
+  onValueMap,
 }: {
   preview: AttendanceImportResult;
   columnDates: Record<number, string>;
   onColumnDates: (next: Record<number, string>) => void;
+  valueMap: ValueMap;
+  onValueMap: (next: ValueMap) => void;
 }) {
   const qc = useQueryClient();
   const s = preview.summary;
@@ -180,7 +213,17 @@ export function AttendancePreview({
         <Count label="Blank cells (no change)" n={s.blank_cells} cls="bg-slate-100 text-slate-600 ring-slate-200" />
         <Count label="Skipped cells" n={s.skipped_cells} cls="bg-amber-50 text-amber-800 ring-amber-200" />
         <Count label="Error rows" n={s.error_rows} cls="bg-red-50 text-red-800 ring-red-200" />
+        <Count label="Periods to save" n={s.periods_to_save} cls="bg-violet-50 text-violet-800 ring-violet-200" />
       </div>
+
+      <CategoriesFound preview={preview} />
+      <UnsupportedValues preview={preview} valueMap={valueMap} onValueMap={onValueMap} />
+      {preview.ignored_columns.length > 0 && (
+        <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+          <b>Columns not read ({preview.ignored_columns.length}):</b> {preview.ignored_columns.map((c) => `“${c}”`).join(", ")}. They are neither a
+          date nor a student column, so nothing in them is saved.
+        </p>
+      )}
 
       {preview.bad_columns.map((c) => (
         <BadColumnPicker key={`${c.column}-${c.suggested}`} col={c} onUse={(d) => onColumnDates({ ...columnDates, [c.column]: d })} />
@@ -282,6 +325,148 @@ export function AttendancePreview({
         </table>
       </div>
     </>
+  );
+}
+
+const actionLabel = { new: "New", extend: "Extended", unchanged: "No change" } as const;
+
+/** Recognised categories (Internship Period, Term 5 Registration Pending) and the periods they make. */
+function CategoriesFound({ preview }: { preview: AttendanceImportResult }) {
+  if (preview.categories.length === 0 && preview.periods.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-violet-200 bg-violet-50/40 p-3 text-sm">
+      <div className="font-medium">Categories recognised</div>
+      <ul className="flex flex-col gap-1">
+        {preview.categories.map((c) => (
+          <li key={c.category} className="flex flex-wrap items-center gap-2">
+            <span className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${categoryInfo[c.category].cls}`}>
+              {categoryInfo[c.category].label}
+            </span>
+            <span>
+              saved as <b>{c.status === "P" ? "Present" : "Absent"}</b>: {c.cells} cell{c.cells === 1 ? "" : "s"}, {fmtDate(c.from)} to{" "}
+              {fmtDate(c.to)}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {preview.periods.length > 0 && (
+        <div className="overflow-x-auto rounded-md border border-border bg-white">
+          <table className="w-full min-w-[560px] text-xs">
+            <thead className="bg-muted text-left uppercase tracking-wide text-muted-foreground">
+              <tr>
+                <th className="px-2 py-1.5 font-medium">Student</th>
+                <th className="px-2 py-1.5 font-medium">Period</th>
+                <th className="px-2 py-1.5 font-medium">Dates</th>
+                <th className="px-2 py-1.5 font-medium">Result</th>
+              </tr>
+            </thead>
+            <tbody>
+              {preview.periods.map((p) => (
+                <tr key={`${p.niat_id}-${p.kind}-${p.start}`} className="border-t border-border">
+                  <td className="px-2 py-1.5">
+                    {p.name || p.niat_id} <span className="font-mono text-muted-foreground">{p.niat_id}</span>
+                  </td>
+                  <td className="px-2 py-1.5">{categoryInfo[p.kind].short}</td>
+                  <td className="px-2 py-1.5">
+                    {fmtDate(p.start)} – {fmtDate(p.end)}
+                    {p.kind === "REGISTRATION_PENDING" &&
+                      (p.completed_on ? <> · completed by {fmtDate(p.completed_on)}</> : <> · still pending (no end date in the sheet)</>)}
+                  </td>
+                  <td className="px-2 py-1.5">{actionLabel[p.action]}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Values that are not saved (like #REF!), with the reason. The admin may map
+ * each to Present or Absent and re-check; nothing is mapped automatically.
+ */
+function UnsupportedValues({
+  preview,
+  valueMap,
+  onValueMap,
+}: {
+  preview: AttendanceImportResult;
+  valueMap: ValueMap;
+  onValueMap: (next: ValueMap) => void;
+}) {
+  const [draft, setDraft] = useState<Record<string, "" | "P" | "A">>({});
+  const chosen = Object.entries(draft).filter(([, v]) => v !== "") as [string, "P" | "A"][];
+  const total = preview.unsupported.reduce((n, u) => n + u.cells, 0);
+  if (preview.unsupported.length === 0 && preview.mapped.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50/50 p-3 text-sm">
+      {preview.unsupported.length > 0 && (
+        <>
+          <div className="font-medium">
+            Not saved: {total} cell{total === 1 ? "" : "s"} with {preview.unsupported.length} unsupported value
+            {preview.unsupported.length === 1 ? "" : "s"}
+          </div>
+          <p className="text-xs text-muted-foreground">{preview.unsupported[0].reason} The rest of the sheet is still saved.</p>
+          <ul className="flex flex-col gap-1.5">
+            {preview.unsupported.map((u) => (
+              <li key={u.value} className="flex flex-wrap items-center gap-2">
+                <code className="rounded bg-white px-1.5 py-0.5 ring-1 ring-amber-200">{u.value}</code>
+                <span className="text-xs text-muted-foreground">
+                  {u.cells} cell{u.cells === 1 ? "" : "s"}
+                </span>
+                <select
+                  aria-label={`Map ${u.value}`}
+                  className="ml-auto h-8 rounded-md border border-input bg-white px-2 text-xs"
+                  value={draft[u.value] ?? ""}
+                  onChange={(e) => setDraft({ ...draft, [u.value]: e.target.value as "" | "P" | "A" })}
+                >
+                  <option value="">Leave unmarked (skip)</option>
+                  <option value="P">Map to Present</option>
+                  <option value="A">Map to Absent</option>
+                </select>
+              </li>
+            ))}
+          </ul>
+          <div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={chosen.length === 0}
+              onClick={() => {
+                onValueMap({ ...valueMap, ...Object.fromEntries(chosen) });
+                setDraft({});
+              }}
+            >
+              Apply mapping and re-check
+            </Button>
+          </div>
+        </>
+      )}
+      {preview.mapped.length > 0 && (
+        <ul className="flex flex-col gap-1 border-t border-amber-200 pt-2">
+          {preview.mapped.map((m) => (
+            <li key={m.value} className="flex items-center justify-between gap-2">
+              <span>
+                <code className="rounded bg-white px-1.5 py-0.5 ring-1 ring-amber-200">{m.value}</code> is saved as{" "}
+                <b>{m.status === "P" ? "Present" : "Absent"}</b> ({m.cells} cell{m.cells === 1 ? "" : "s"}, mapped by you)
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => onValueMap(Object.fromEntries(Object.entries(valueMap).filter(([k]) => k.trim().toLowerCase() !== m.value.trim().toLowerCase())))}
+              >
+                Undo
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

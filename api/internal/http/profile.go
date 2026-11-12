@@ -51,6 +51,8 @@ type profileResponse struct {
 	// admin remarks by month (YYYY-MM).
 	Placement stats.Placement   `json:"placement"`
 	Remarks   map[string]string `json:"remarks"`
+	// Periods are the student's internship and registration-pending periods.
+	Periods []periodJSON `json:"periods"`
 }
 
 type dayJSON struct {
@@ -61,6 +63,9 @@ type dayJSON struct {
 	Excluded string  `json:"excluded"`
 	Counted  bool    `json:"counted"`
 	Status   *string `json:"status"` // "P", "A" or null; null on days that do not count
+	// Category is INTERNSHIP or REGISTRATION_PENDING when the day's mark
+	// carries one (also on days that do not count), else "".
+	Category string `json:"category"`
 }
 
 type monthResponse struct {
@@ -103,7 +108,8 @@ func (s *Server) loadStudent(w http.ResponseWriter, r *http.Request, includeDrop
 
 // profile computes the term summary and monthly summaries for one student,
 // for term termID (0: the current term). An unknown term returns errNoTerm.
-func (s *Server) profile(ctx context.Context, st db.GetStudentRow, student any, termID int64) (profileResponse, error) {
+// Cancelled periods are listed only with includeCancelled (admins).
+func (s *Server) profile(ctx context.Context, st db.GetStudentRow, student any, termID int64, includeCancelled bool) (profileResponse, error) {
 	r, err := s.loadRules(ctx, calendarStart, calendarEnd)
 	if err != nil {
 		return profileResponse{}, err
@@ -131,6 +137,9 @@ func (s *Server) profile(ctx context.Context, st db.GetStudentRow, student any, 
 	for _, rm := range remarks {
 		resp.Remarks[rm.Month.Time.Format("2006-01")] = rm.Remark
 	}
+	if resp.Periods, err = s.studentPeriods(ctx, s.store, st, r, includeCancelled); err != nil {
+		return profileResponse{}, err
+	}
 	return resp, nil
 }
 
@@ -153,7 +162,7 @@ func (s *Server) month(w http.ResponseWriter, r *http.Request, st db.GetStudentR
 		s.internalError(w, "load rules", err)
 		return
 	}
-	marks, err := s.loadMarks(r.Context(), []string{st.NiatID}, first, last)
+	marks, cats, err := s.loadMarksWithCategories(r.Context(), s.store, []string{st.NiatID}, first, last)
 	if err != nil {
 		s.internalError(w, "load marks", err)
 		return
@@ -171,7 +180,7 @@ func (s *Server) month(w http.ResponseWriter, r *http.Request, st db.GetStudentR
 		resp.Days[i] = dayJSON{
 			Date: stats.DateKey(d.Date), Weekday: int(d.Date.Weekday()), Kind: string(d.Kind), Label: d.Label,
 			Excluded: string(d.Excluded), Counted: d.Counted,
-			Status: markJSON(d.Status),
+			Status: markJSON(d.Status), Category: string(cats.of(st.NiatID, stats.DateKey(d.Date))),
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)

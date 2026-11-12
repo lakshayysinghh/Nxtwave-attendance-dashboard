@@ -19,7 +19,7 @@ func (s *Server) handlePublicProfile(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	resp, err := s.profile(r.Context(), st, toStudentJSON(st), 0)
+	resp, err := s.profile(r.Context(), st, toStudentJSON(st), 0, false)
 	if err != nil {
 		s.internalError(w, "profile", err)
 		return
@@ -252,6 +252,7 @@ func (s *Server) handleSaveAttendance(w http.ResponseWriter, r *http.Request) {
 			target.NiatIds = append(target.NiatIds, m.NiatID)
 			target.Dates = append(target.Dates, pgDate(date))
 			target.Statuses = append(target.Statuses, status)
+			target.Categories = append(target.Categories, "") // a hand mark; see UpsertMarks for categories
 		}
 	}
 	if len(errs) > 0 {

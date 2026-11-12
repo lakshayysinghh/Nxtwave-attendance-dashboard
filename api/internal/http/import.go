@@ -42,7 +42,7 @@ type importResponse struct {
 }
 
 // POST /api/admin/imports/students (multipart field "file", optional
-// "column_dates" as for the attendance import).
+// "column_dates" and "value_map" as for the attendance import).
 // Without commit=true it only previews. With commit=true it saves new and
 // changed rows in one transaction; rows with errors block the save unless
 // skip_errors=true, in which case they are left out. When the sheet also has
@@ -82,13 +82,13 @@ func (s *Server) handleImportStudents(w http.ResponseWriter, r *http.Request) {
 
 	// The same sheet's date columns, if any. Without date columns there is
 	// no attendance part, and the parse error is not shown.
-	var marks db.UpsertMarksParams
-	columnDates, err := parseColumnDates(r.FormValue("column_dates"))
+	var marks *attendancePlan
+	columnDates, valueMap, err := parseImportOptions(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "bad_request", err.Error(), nil)
 		return
 	}
-	if sheet, err := importer.ParseAttendance(table, stats.TodayIST(s.now()), columnDates); err == nil {
+	if sheet, err := importer.ParseAttendanceWith(table, stats.TodayIST(s.now()), columnDates, valueMap); err == nil {
 		att, changes, err := s.previewAttendance(r, header.Filename, sheet, pendingStudents(resp.Rows, existing))
 		if err != nil {
 			s.internalError(w, "preview attendance in student import", err)

@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRef, useState } from "react";
 
-import { AttendancePreview, Count, attendanceHasErrors, markQueryKeys } from "@/components/import-attendance";
+import { AttendancePreview, Count, attendanceHasErrors, markQueryKeys, periodsSaved, type ValueMap } from "@/components/import-attendance";
 import { studentHref } from "@/components/admin-dashboard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,6 +28,7 @@ export function ImportStudents() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<ImportResult | null>(null);
   const [columnDates, setColumnDates] = useState<Record<number, string>>({});
+  const [valueMap, setValueMap] = useState<ValueMap>({});
   const [skipErrors, setSkipErrors] = useState(false);
   const [done, setDone] = useState("");
 
@@ -35,22 +36,30 @@ export function ImportStudents() {
     setFile(null);
     setPreview(null);
     setColumnDates({});
+    setValueMap({});
     setSkipErrors(false);
     if (inputRef.current) inputRef.current.value = "";
   };
 
   const check = useMutation({
-    mutationFn: (v: { file: File; columnDates: Record<number, string> }) => importStudents(v.file, { columnDates: v.columnDates }),
+    mutationFn: (v: { file: File; columnDates: Record<number, string>; valueMap: ValueMap }) =>
+      importStudents(v.file, { columnDates: v.columnDates, valueMap: v.valueMap }),
     onSuccess: setPreview,
   });
   const recheck = (cd: Record<number, string>) => {
     setColumnDates(cd);
-    if (file) check.mutate({ file, columnDates: cd });
+    if (file) check.mutate({ file, columnDates: cd, valueMap });
+  };
+  const remap = (vm: ValueMap) => {
+    setValueMap(vm);
+    if (file) check.mutate({ file, columnDates, valueMap: vm });
   };
   const save = useMutation({
-    mutationFn: () => importStudents(file!, { commit: true, skipErrors, columnDates }),
+    mutationFn: () => importStudents(file!, { commit: true, skipErrors, columnDates, valueMap }),
     onSuccess: (res) => {
-      const marks = res.attendance ? ` Saved ${res.attendance.saved} mark(s) for ${res.attendance.summary.students_affected} student(s).` : "";
+      const marks = res.attendance
+        ? ` Saved ${res.attendance.saved} mark(s) for ${res.attendance.summary.students_affected} student(s)${periodsSaved(res.attendance.summary.periods_to_save)}.`
+        : "";
       setDone(
         `Imported ${res.file_name}: ${res.summary.new} new, ${res.summary.updated} updated${res.summary.errors ? `, ${res.summary.errors} row(s) with errors skipped` : ""}.${marks}`,
       );
@@ -63,11 +72,14 @@ export function ImportStudents() {
   const att = preview?.attendance;
   const studentsToSave = s ? s.new + s.updated : 0;
   const marksToSave = att?.summary.records_to_update ?? 0;
+  const periodsToSave = att?.summary.periods_to_save ?? 0;
+  const partial = !!att && att.unsupported.length > 0;
   const hasErrors = !!s && (s.errors > 0 || (!!att && attendanceHasErrors(att)));
   const error = check.error ?? save.error;
   const saveLabel = [
     studentsToSave > 0 && `${studentsToSave} student${studentsToSave === 1 ? "" : "s"}`,
     marksToSave > 0 && `${marksToSave} mark${marksToSave === 1 ? "" : "s"}`,
+    periodsToSave > 0 && `${periodsToSave} period${periodsToSave === 1 ? "" : "s"}`,
   ]
     .filter(Boolean)
     .join(" and ");
@@ -97,6 +109,7 @@ export function ImportStudents() {
               setFile(e.target.files?.[0] ?? null);
               setPreview(null);
               setColumnDates({});
+              setValueMap({});
               setDone("");
               check.reset();
               save.reset();
@@ -104,7 +117,7 @@ export function ImportStudents() {
             className="text-sm file:mr-3 file:h-9 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:text-sm file:font-medium file:text-secondary-foreground"
           />
           <div className="flex gap-2 sm:ml-auto">
-            <Button variant="outline" disabled={!file || check.isPending} onClick={() => file && check.mutate({ file, columnDates })}>
+            <Button variant="outline" disabled={!file || check.isPending} onClick={() => file && check.mutate({ file, columnDates, valueMap })}>
               {check.isPending ? "Checking…" : "Check file"}
             </Button>
             {(file || preview) && (
@@ -184,7 +197,7 @@ export function ImportStudents() {
             {att && (
               <div className="flex flex-col gap-3 border-t border-border pt-3">
                 <h3 className="text-sm font-semibold">Attendance in this sheet</h3>
-                <AttendancePreview preview={att} columnDates={columnDates} onColumnDates={recheck} />
+                <AttendancePreview preview={att} columnDates={columnDates} onColumnDates={recheck} valueMap={valueMap} onValueMap={remap} />
               </div>
             )}
 
@@ -195,10 +208,20 @@ export function ImportStudents() {
                   Skip the rows and columns with errors and import the rest
                 </label>
               ) : (
-                <span className="text-sm text-muted-foreground">No errors found. Nothing is saved until you confirm.</span>
+                <span className="text-sm text-muted-foreground">
+                  {partial
+                    ? "Unsupported values above will not be saved. Map them, or continue with the valid data."
+                    : "No errors found. Nothing is saved until you confirm."}
+                </span>
               )}
               <Button disabled={!saveLabel || (hasErrors && !skipErrors) || save.isPending} onClick={() => save.mutate()}>
-                {save.isPending ? "Importing…" : !saveLabel ? "Nothing to import" : `Import ${saveLabel}`}
+                {save.isPending
+                  ? "Importing…"
+                  : !saveLabel
+                    ? "Nothing to import"
+                    : partial
+                      ? `Continue with valid data: import ${saveLabel}`
+                      : `Import ${saveLabel}`}
               </Button>
             </div>
           </>

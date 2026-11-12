@@ -44,6 +44,29 @@ export type Profile = {
   placement: Placement;
   /** Admin remarks by month (YYYY-MM). */
   remarks: Record<string, string>;
+  /** Internship and registration-pending periods; cancelled ones only in the admin view. */
+  periods: Period[];
+};
+
+export type PeriodKind = "INTERNSHIP" | "REGISTRATION_PENDING";
+
+/** An internship or registration-pending period of one student. */
+export type Period = {
+  id: number;
+  kind: PeriodKind;
+  start: string;
+  end: string;
+  /** Registration only: the day an import showed it done; "" while pending. */
+  completed_on: string;
+  source: "admin" | "import";
+  state: "upcoming" | "active" | "ended" | "pending" | "completed" | "cancelled";
+  /** Every day from start to end. */
+  calendar_days: number;
+  /** Days in the period that count for attendance, up to today. */
+  attendance_days: number;
+  created_at: string;
+  updated_at: string;
+  cancelled_at: string;
 };
 
 /** Standing against the placement attendance threshold (95%). */
@@ -64,6 +87,8 @@ export type MonthDay = {
   excluded: string;
   counted: boolean;
   status: Mark;
+  /** INTERNSHIP or REGISTRATION_PENDING when the day's mark carries one, else "". */
+  category: PeriodKind | "";
 };
 
 export type Month = { month: string; today: string; days: MonthDay[]; summary: Summary };
@@ -186,14 +211,23 @@ export type ImportResult = {
   attendance?: AttendanceImportResult;
 };
 
-/** columnDates gives a date (YYYY-MM-DD) to unreadable date headers, by 0-based column. */
-type UploadOpts = { commit?: boolean; skipErrors?: boolean; columnDates?: Record<number, string> };
+/**
+ * columnDates gives a date (YYYY-MM-DD) to unreadable date headers, by 0-based column.
+ * valueMap maps values that are not marks (as written in the sheet) to Present or Absent.
+ */
+type UploadOpts = {
+  commit?: boolean;
+  skipErrors?: boolean;
+  columnDates?: Record<number, string>;
+  valueMap?: Record<string, "P" | "A">;
+};
 
 /** Uploads a sheet to an import endpoint: a preview by default, or saves it with commit. */
 async function uploadSheet<T>(kind: "students" | "attendance" | "calendar", file: File, opts: UploadOpts): Promise<T> {
   const form = new FormData();
   form.append("file", file);
   if (opts.columnDates && Object.keys(opts.columnDates).length > 0) form.append("column_dates", JSON.stringify(opts.columnDates));
+  if (opts.valueMap && Object.keys(opts.valueMap).length > 0) form.append("value_map", JSON.stringify(opts.valueMap));
   const qs = new URLSearchParams({ commit: String(!!opts.commit), skip_errors: String(!!opts.skipErrors) });
   const res = await fetch(`/api/admin/imports/${kind}?${qs}`, { method: "POST", body: form });
   const body = await res.json().catch(() => null);
@@ -232,7 +266,26 @@ export type AttendanceImportResult = {
     blank_cells: number;
     skipped_cells: number;
     error_rows: number;
+    /** Internship / registration periods created or changed by the save. */
+    periods_to_save: number;
   };
+  /** Recognised categories: the mark each saves, how many cells, first and last date. */
+  categories: { category: PeriodKind; status: "P" | "A"; cells: number; from: string; to: string }[];
+  /** Values that are not saved (e.g. #REF!), most frequent first. */
+  unsupported: { value: string; cells: number; reason: string }[];
+  /** Values you mapped to Present or Absent. */
+  mapped: { value: string; status: "P" | "A"; cells: number }[];
+  /** Headers that are neither a date nor a student column; not read. */
+  ignored_columns: string[];
+  periods: {
+    niat_id: string;
+    name: string;
+    kind: PeriodKind;
+    start: string;
+    end: string;
+    completed_on: string;
+    action: "new" | "extend" | "unchanged";
+  }[];
   rows: AttendanceImportRow[];
   committed: boolean;
   saved: number;
@@ -310,6 +363,54 @@ export const studentsApi = {
       method: "POST",
       body: JSON.stringify({ niat_ids: niatIds, confirm }),
     }),
+};
+
+/** An existing mark an internship would replace. */
+export type InternshipConflict = { date: string; status: "P" | "A"; category: PeriodKind | "" };
+
+export type InternshipResult = {
+  dry_run: boolean;
+  period: Period | null;
+  /** Days added to the internship. */
+  days: number;
+  conflicts: InternshipConflict[];
+  marks_saved: number;
+  /** Conflicting marks left as they were (overwrite off). */
+  marks_kept: number;
+  /** INTERNSHIP marks removed from days no longer covered. */
+  marks_removed: number;
+};
+
+export type InternshipInput = { start: string; end: string; overwrite?: boolean; dry_run?: boolean };
+
+/** An internship on the admin calendar, with its student. */
+export type InternshipListItem = Period & {
+  niat_id: string;
+  name: string;
+  degree: string;
+  section: string;
+  hall_no: string;
+  /** The internship covers today. */
+  current: boolean;
+};
+
+/** Internship periods. Any admin; the server checks overlaps and saves marks in one transaction. */
+export const internshipsApi = {
+  periods: (id: string) =>
+    request<{ today: string; periods: Period[] }>(`/api/admin/students/${encodeURIComponent(id)}/periods`),
+  create: (id: string, input: InternshipInput) =>
+    request<InternshipResult>(`/api/admin/students/${encodeURIComponent(id)}/internships`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  update: (periodId: number, input: InternshipInput) =>
+    request<InternshipResult>(`/api/admin/internships/${periodId}`, { method: "PUT", body: JSON.stringify(input) }),
+  cancel: (periodId: number) =>
+    request<{ cancelled: number; marks_removed: number }>(`/api/admin/internships/${periodId}/cancel`, { method: "POST" }),
+  list: (from: string, to: string) =>
+    request<{ from: string; to: string; today: string; current: number; internships: InternshipListItem[] }>(
+      `/api/admin/internships?${new URLSearchParams({ from, to })}`,
+    ),
 };
 
 export type TermRow = { id: number; name: string; start: string; end: string; is_current: boolean };

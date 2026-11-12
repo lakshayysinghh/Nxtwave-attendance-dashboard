@@ -19,3 +19,8 @@ backups/
 # Docs and tests stay local only.
 *.md
 *_test.go
+
+# Browser smoke tests and their output stay local too.
+web/e2e/
+web/test-results/
+web/playwright-report/

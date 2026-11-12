@@ -3,10 +3,21 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { Legend, PctBadge, TermRange, bandInfo, fmtDate, fmtDay, fmtMonth } from "@/components/attendance-ui";
+import {
+  Legend,
+  PctBadge,
+  PeriodDates,
+  TermRange,
+  bandInfo,
+  categoryInfo,
+  fmtDate,
+  fmtDay,
+  fmtMonth,
+  periodStateLabel,
+} from "@/components/attendance-ui";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { api, pctText, type Month, type MonthDay, type Placement, type Profile } from "@/lib/api";
+import { api, pctText, type Month, type MonthDay, type Period, type PeriodKind, type Placement, type Profile } from "@/lib/api";
 
 const inputCls =
   "h-10 w-full rounded-md border border-input bg-white px-3 text-sm outline-none placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/15";
@@ -85,7 +96,8 @@ export function StudentLookup() {
  * cautions, counts, monthly summary and a month calendar. Shared by the
  * student view and the admin student page, so the two always show the same
  * numbers. extraFields adds admin-only details to the header; onSaveRemark
- * lets admins edit the monthly remarks.
+ * lets admins edit the monthly remarks. periodsCard replaces the read-only
+ * internship / registration card (the admin page passes its editable one).
  */
 export function StudentProfile({
   p,
@@ -93,12 +105,14 @@ export function StudentProfile({
   monthKey,
   extraFields = [],
   onSaveRemark,
+  periodsCard,
 }: {
   p: Profile;
   fetchMonth: (ym: string) => Promise<Month>;
   monthKey: string;
   extraFields?: { label: string; value: string }[];
   onSaveRemark?: (ym: string, remark: string) => Promise<unknown>;
+  periodsCard?: React.ReactNode;
 }) {
   const [month, setMonth] = useState("");
   const ym = month || p.months.at(-1)?.month || p.today.slice(0, 7);
@@ -142,6 +156,8 @@ export function StudentProfile({
       </Card>
 
       <PlacementCautions p={p} onSaveRemark={onSaveRemark} />
+
+      {periodsCard ?? <PeriodsCard periods={p.periods} />}
 
       <div className="grid grid-cols-3 gap-3">
         <Tile label="Working days so far" value={p.summary.counted_days} />
@@ -203,6 +219,7 @@ export function StudentProfile({
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <Legend showNotMarked={false} />
+            <CategoryLegend days={history.data?.days ?? []} />
             {history.error ? (
               <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
                 Couldn&apos;t load this month: {history.error.message}
@@ -241,21 +258,84 @@ function MonthCalendar({ days, today }: { days: MonthDay[]; today: string }) {
         const future = d.date > today;
         const mark = d.counted && !future ? d.status : null;
         const note = d.counted ? "" : nonCountedText(d);
+        const cat = d.category ? categoryInfo[d.category] : null;
+        // A category colours the day when its mark counts (or will, for a planned internship day).
+        const catTone = cat && (mark || (future && d.counted));
         return (
           <div
             key={d.date}
-            title={`${fmtDay(d.date)}${mark ? ` · ${mark === "P" ? "Present" : "Absent"}` : note ? ` · ${note}` : ""}`}
+            title={`${fmtDay(d.date)}${cat ? ` · ${cat.label}` : ""}${mark ? ` · ${mark === "P" ? "Present" : "Absent"}` : note ? ` · ${note}` : ""}`}
             className={`flex min-h-14 flex-col items-center justify-start gap-0.5 rounded-md p-1 ring-1 ring-inset ${
-              mark ? cellTone[mark] : d.counted ? "bg-white ring-border" : "bg-muted/60 text-muted-foreground ring-transparent"
+              catTone ? cat.cls : mark ? cellTone[mark] : d.counted ? "bg-white ring-border" : "bg-muted/60 text-muted-foreground ring-transparent"
             } ${future ? "opacity-50" : ""} ${d.date === today ? "outline-2 outline-primary" : ""}`}
           >
             <span className="font-medium tabular-nums">{Number(d.date.slice(8))}</span>
             {mark && <span className="text-sm font-semibold">{mark}</span>}
-            {note && <span className="line-clamp-2 text-[10px] leading-tight">{note}</span>}
+            {cat && <span className="line-clamp-2 text-[10px] font-medium leading-tight">{cat.short}</span>}
+            {note && !cat && <span className="line-clamp-2 text-[10px] leading-tight">{note}</span>}
           </div>
         );
       })}
     </div>
+  );
+}
+
+/** Legend entries for the categories shown in this month. */
+function CategoryLegend({ days }: { days: MonthDay[] }) {
+  const kinds = [...new Set(days.map((d) => d.category).filter(Boolean))] as PeriodKind[];
+  if (kinds.length === 0) return null;
+  return (
+    <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+      {kinds.map((k) => (
+        <span key={k} className="flex items-center gap-1.5">
+          <span className={`inline-block size-3 rounded-sm ring-1 ring-inset ${categoryInfo[k].cls}`} />
+          {categoryInfo[k].label} (counted as {categoryInfo[k].mark})
+        </span>
+      ))}
+    </p>
+  );
+}
+
+/** Read-only list of the student's internship and registration-pending periods. */
+function PeriodsCard({ periods }: { periods: Period[] }) {
+  if (periods.length === 0) return null;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Internship and registration</CardTitle>
+        <CardDescription>Internship days count as Present; days with Term 5 registration pending count as Absent.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <PeriodList periods={periods} />
+      </CardContent>
+    </Card>
+  );
+}
+
+/** One line per period: category, state and dates. Shared with the admin card. */
+export function PeriodList({ periods, actions }: { periods: Period[]; actions?: (p: Period) => React.ReactNode }) {
+  return (
+    <ul className="flex flex-col gap-2 text-sm">
+      {periods.map((p) => (
+        <li
+          key={p.id}
+          className={`flex flex-col gap-1 rounded-md border border-border p-2 sm:flex-row sm:items-center sm:justify-between ${p.state === "cancelled" ? "opacity-60" : ""}`}
+        >
+          <div className="flex flex-col gap-0.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${categoryInfo[p.kind].cls}`}>
+                {categoryInfo[p.kind].short}
+              </span>
+              <span className="text-xs font-medium">{periodStateLabel[p.state]}</span>
+            </div>
+            <span className="text-xs text-muted-foreground">
+              <PeriodDates p={p} />
+            </span>
+          </div>
+          {actions?.(p)}
+        </li>
+      ))}
+    </ul>
   );
 }
 

@@ -11,6 +11,34 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const deleteCategoryMarks = `-- name: DeleteCategoryMarks :execrows
+DELETE FROM attendance
+WHERE niat_id = $1 AND category = $2::text
+  AND date BETWEEN $3::date AND $4::date
+`
+
+type DeleteCategoryMarksParams struct {
+	NiatID   string      `json:"niat_id"`
+	Category string      `json:"category"`
+	FromDate pgtype.Date `json:"from_date"`
+	ToDate   pgtype.Date `json:"to_date"`
+}
+
+// Removes one category's marks in a date range; marks of any other category
+// (including regular marks set by hand) stay.
+func (q *Queries) DeleteCategoryMarks(ctx context.Context, arg DeleteCategoryMarksParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteCategoryMarks,
+		arg.NiatID,
+		arg.Category,
+		arg.FromDate,
+		arg.ToDate,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteDemoMarks = `-- name: DeleteDemoMarks :execrows
 DELETE FROM attendance WHERE niat_id LIKE 'N99%'
 `
@@ -64,8 +92,39 @@ func (q *Queries) InsertMarksIfMissing(ctx context.Context, arg InsertMarksIfMis
 	return result.RowsAffected(), nil
 }
 
+const insertMarksKeepExisting = `-- name: InsertMarksKeepExisting :execrows
+INSERT INTO attendance (niat_id, date, status, category, updated_at, updated_by)
+SELECT u.niat_id, u.date, u.status, NULLIF(u.category, ''), now(), $1::bigint
+FROM (SELECT unnest($2::text[]) AS niat_id, unnest($3::date[]) AS date,
+             unnest($4::text[]) AS status, unnest($5::text[]) AS category) u
+ON CONFLICT (niat_id, date) DO NOTHING
+`
+
+type InsertMarksKeepExistingParams struct {
+	UpdatedBy  int64         `json:"updated_by"`
+	NiatIds    []string      `json:"niat_ids"`
+	Dates      []pgtype.Date `json:"dates"`
+	Statuses   []string      `json:"statuses"`
+	Categories []string      `json:"categories"`
+}
+
+// Adds marks only on days that have none; existing marks are left as they are.
+func (q *Queries) InsertMarksKeepExisting(ctx context.Context, arg InsertMarksKeepExistingParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertMarksKeepExisting,
+		arg.UpdatedBy,
+		arg.NiatIds,
+		arg.Dates,
+		arg.Statuses,
+		arg.Categories,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const listMarks = `-- name: ListMarks :many
-SELECT niat_id, date, status FROM attendance
+SELECT niat_id, date, status, coalesce(category, '')::text AS category FROM attendance
 WHERE niat_id = ANY($1::text[])
   AND date BETWEEN $2::date AND $3::date
 ORDER BY niat_id, date
@@ -78,9 +137,10 @@ type ListMarksParams struct {
 }
 
 type ListMarksRow struct {
-	NiatID string      `json:"niat_id"`
-	Date   pgtype.Date `json:"date"`
-	Status string      `json:"status"`
+	NiatID   string      `json:"niat_id"`
+	Date     pgtype.Date `json:"date"`
+	Status   string      `json:"status"`
+	Category string      `json:"category"`
 }
 
 func (q *Queries) ListMarks(ctx context.Context, arg ListMarksParams) ([]ListMarksRow, error) {
@@ -92,7 +152,12 @@ func (q *Queries) ListMarks(ctx context.Context, arg ListMarksParams) ([]ListMar
 	var items []ListMarksRow
 	for rows.Next() {
 		var i ListMarksRow
-		if err := rows.Scan(&i.NiatID, &i.Date, &i.Status); err != nil {
+		if err := rows.Scan(
+			&i.NiatID,
+			&i.Date,
+			&i.Status,
+			&i.Category,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -104,26 +169,36 @@ func (q *Queries) ListMarks(ctx context.Context, arg ListMarksParams) ([]ListMar
 }
 
 const upsertMarks = `-- name: UpsertMarks :execrows
-INSERT INTO attendance (niat_id, date, status, updated_at, updated_by)
-SELECT unnest($1::text[]), unnest($2::date[]), unnest($3::text[]),
-       now(), $4::bigint
+INSERT INTO attendance (niat_id, date, status, category, updated_at, updated_by)
+SELECT u.niat_id, u.date, u.status, NULLIF(u.category, ''), now(), $1::bigint
+FROM (SELECT unnest($2::text[]) AS niat_id, unnest($3::date[]) AS date,
+             unnest($4::text[]) AS status, unnest($5::text[]) AS category) u
 ON CONFLICT (niat_id, date) DO UPDATE
-SET status = EXCLUDED.status, updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by
+SET category = CASE
+        WHEN EXCLUDED.category IS NULL AND attendance.status = EXCLUDED.status THEN attendance.category
+        ELSE EXCLUDED.category
+    END,
+    status = EXCLUDED.status, updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by
 `
 
 type UpsertMarksParams struct {
-	NiatIds   []string      `json:"niat_ids"`
-	Dates     []pgtype.Date `json:"dates"`
-	Statuses  []string      `json:"statuses"`
-	UpdatedBy int64         `json:"updated_by"`
+	UpdatedBy  int64         `json:"updated_by"`
+	NiatIds    []string      `json:"niat_ids"`
+	Dates      []pgtype.Date `json:"dates"`
+	Statuses   []string      `json:"statuses"`
+	Categories []string      `json:"categories"`
 }
 
+// categories: ” for a regular mark. A regular mark with the same status as
+// the stored one keeps the stored category, so re-saving a day does not
+// drop its INTERNSHIP or REGISTRATION_PENDING tag; a changed status clears it.
 func (q *Queries) UpsertMarks(ctx context.Context, arg UpsertMarksParams) (int64, error) {
 	result, err := q.db.Exec(ctx, upsertMarks,
+		arg.UpdatedBy,
 		arg.NiatIds,
 		arg.Dates,
 		arg.Statuses,
-		arg.UpdatedBy,
+		arg.Categories,
 	)
 	if err != nil {
 		return 0, err

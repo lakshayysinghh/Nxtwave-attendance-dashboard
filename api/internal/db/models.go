@@ -26,6 +26,7 @@ type Attendance struct {
 	Status    string             `json:"status"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 	UpdatedBy pgtype.Int8        `json:"updated_by"`
+	Category  pgtype.Text        `json:"category"`
 }
 
 type CalendarDay struct {
@@ -78,6 +79,22 @@ type Student struct {
 	DroppedOn  pgtype.Date        `json:"dropped_on"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
+type StudentPeriod struct {
+	ID          int64              `json:"id"`
+	NiatID      string             `json:"niat_id"`
+	Kind        string             `json:"kind"`
+	StartDate   pgtype.Date        `json:"start_date"`
+	EndDate     pgtype.Date        `json:"end_date"`
+	CompletedOn pgtype.Date        `json:"completed_on"`
+	Source      string             `json:"source"`
+	CancelledAt pgtype.Timestamptz `json:"cancelled_at"`
+	CancelledBy pgtype.Int8        `json:"cancelled_by"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	CreatedBy   pgtype.Int8        `json:"created_by"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	UpdatedBy   pgtype.Int8        `json:"updated_by"`
 }
 
 type StudentRemark struct {

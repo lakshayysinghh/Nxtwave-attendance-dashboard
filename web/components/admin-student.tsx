@@ -8,6 +8,7 @@ import { useState } from "react";
 
 import { TermPicker, useTermParam } from "@/components/admin-dashboard";
 import { PageHeading } from "@/components/admin-shell";
+import { InternshipAdminCard } from "@/components/internship-admin";
 import { RemoveStudentCard, StudentFormCard } from "@/components/student-form";
 import { StudentProfile, adminFields } from "@/components/student-lookup";
 import { Button } from "@/components/ui/button";
@@ -74,6 +75,7 @@ export function AdminStudentPage({ niatId }: { niatId: string }) {
           fetchMonth={(ym) => api.adminMonth(p.student.niat_id, ym)}
           extraFields={adminFields(p.student)}
           onSaveRemark={saveRemark}
+          periodsCard={<InternshipAdminCard p={p} />}
         />
       )}
     </>
