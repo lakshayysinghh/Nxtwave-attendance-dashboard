@@ -107,6 +107,7 @@ export const guides = {
           "Click a **band card** to show only that band; click it again to undo.",
           "**Clear filters** resets everything. The line under the filters shows how many students are shown out of the total.",
           "The **Term** picker shows percentages for any term.",
+          "**Attendance dates**: choose From and To (or a quick range such as Last 7 days) to see every student's present, absent and % for just those days. Working days are then present + absent; class days with no mark are not counted.",
           "Filters live in the page address, so **Back** from a student returns to the same list, and you can share the link with another admin.",
         ],
       },
@@ -215,6 +216,7 @@ export const guides = {
           "**Monthly summary**: counted days, present, absent and % per month. Click a month to show it in the calendar.",
           "**Attendance calendar**: P (green) and A (red), holidays, exam days, Sundays and internship / registration-pending days in their colours.",
           "**Hover over or tap a date** to see its type, label, whether it counts, the mark and its period.",
+          "**Attendance between dates**: pick From and To for the working days, present, absent and % of just those days (working days = present + absent).",
         ],
       },
       {
@@ -584,6 +586,7 @@ export const guides = {
             ["**Remark**", "A note from the admins for that month, e.g. medical leave approved"],
             ["**Internship and registration**", "Internship days count as Present; Term 5 registration pending days count as Absent"],
             ["**Monthly summary**", "Days, present, absent and % per month. Select a month to see its calendar."],
+            ["**Attendance between dates**", "Pick From and To (or Last 7 days, This month…) to see working days, present, absent and % for just those days. Working days = present + absent; only dates in the current term count."],
           ],
         },
       },

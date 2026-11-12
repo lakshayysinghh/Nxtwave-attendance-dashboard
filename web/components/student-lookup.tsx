@@ -17,9 +17,10 @@ import {
 } from "@/components/attendance-ui";
 import { DayPopover, StudentDayDetails } from "@/components/day-details";
 import { Button } from "@/components/ui/button";
+import { DateRangeCard } from "@/components/date-range";
 import { PageHelp } from "@/components/help/page-help";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { api, pctText, type Month, type MonthDay, type Period, type PeriodKind, type Placement, type Profile } from "@/lib/api";
+import { api, pctText, type Month, type MonthDay, type Period, type PeriodKind, type Placement, type Profile, type RangeResult } from "@/lib/api";
 
 const inputCls =
   "h-10 w-full rounded-md border border-input bg-white px-3 text-sm outline-none placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/15";
@@ -92,7 +93,14 @@ export function StudentLookup() {
         </p>
       )}
 
-      {p && <StudentProfile key={p.student.niat_id} p={p} monthKey="month" fetchMonth={(ym) => api.month(p.student.niat_id, ym)} />}
+      {p && (
+        <StudentProfile
+          key={p.student.niat_id}
+          p={p}
+          monthKey="month" fetchMonth={(ym) => api.month(p.student.niat_id, ym)}
+          fetchRange={(from, to) => api.range(p.student.niat_id, from, to)}
+        />
+      )}
     </div>
   );
 }
@@ -112,9 +120,12 @@ export function StudentProfile({
   extraFields = [],
   onSaveRemark,
   periodsCard,
+  fetchRange,
 }: {
   p: Profile;
   fetchMonth: (ym: string) => Promise<Month>;
+  /** Counts for a date range (the student view narrows it to the current term). */
+  fetchRange: (from: string, to: string) => Promise<RangeResult>;
   monthKey: string;
   extraFields?: { label: string; value: string }[];
   onSaveRemark?: (ym: string, remark: string) => Promise<unknown>;
@@ -170,6 +181,8 @@ export function StudentProfile({
         <Tile label="Days present" value={p.summary.days_attended} tone="text-green-700" />
         <Tile label="Days absent" value={p.summary.days_absent} tone="text-red-700" />
       </div>
+
+      <DateRangeCard niatId={s.niat_id} today={p.today} term={p.term} fetchRange={fetchRange} queryKey={`${monthKey}-range`} />
 
       <div className="grid gap-6 lg:grid-cols-5">
         <Card className="lg:col-span-2">

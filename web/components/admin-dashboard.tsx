@@ -10,7 +10,8 @@ import { PageHeading, useCurrentAdmin } from "@/components/admin-shell";
 import { HealthStatus } from "@/components/health-status";
 import { markQueryKeys } from "@/components/import-attendance";
 import { StudentFormCard } from "@/components/student-form";
-import { Legend, PctBadge, TermRange, bandInfo, fmtDay } from "@/components/attendance-ui";
+import { Legend, PctBadge, TermRange, bandInfo, fmtDate, fmtDay } from "@/components/attendance-ui";
+import { RangePicker } from "@/components/date-range";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ApiError, api, pctText, studentsApi, termsApi, type AdminStudent, type Band, type Mark, type MarkInput } from "@/lib/api";
@@ -246,7 +247,12 @@ export function StudentsPage() {
   };
 
   const all = useAllStudents();
-  const filters = { q, degree, section, hall, term: params.get("term") ?? "" };
+  // Attendance dates (?from=&to=): every student's counts for just those days.
+  // Kept in state too (like the search box), so changing From then To at once never loses one.
+  const [dates, setDates] = useState({ from: params.get("from") ?? "", to: params.get("to") ?? "" });
+  const { from, to } = dates;
+  const ranged = from !== "" && to !== "" && from <= to;
+  const filters = { q, degree, section, hall, term: params.get("term") ?? "", ...(ranged ? { from, to } : {}) };
   const list = useQuery({
     queryKey: ["students", filters],
     queryFn: () => api.students(filters),
@@ -254,7 +260,7 @@ export function StudentsPage() {
   });
   const total = all.data?.overview.students ?? 0;
   const rows = (list.data?.students ?? []).filter((s) => !band || s.band === band);
-  const filtered = q !== "" || band !== null || degree !== "" || section !== "" || hall !== undefined;
+  const filtered = q !== "" || band !== null || degree !== "" || section !== "" || hall !== undefined || from !== "" || to !== "";
 
   // Filter choices come from every student, so they don't shrink as you filter.
   const everyone = all.data?.students ?? [];
@@ -323,11 +329,32 @@ export function StudentsPage() {
               disabled={!filtered}
               onClick={() => {
                 setQ("");
+                setDates({ from: "", to: "" });
                 router.replace(pathname, { scroll: false });
               }}
             >
               Clear filters
             </Button>
+          </div>
+          <div className="flex flex-col gap-1.5 rounded-md border border-border bg-muted/30 p-3">
+            <span className="text-xs font-semibold text-slate-600">Attendance dates</span>
+            <RangePicker
+              from={from}
+              to={to}
+              today={all.data?.today ?? ""}
+              term={all.data?.term ?? null}
+              onChange={(f, t) => {
+                setDates({ from: f, to: t });
+                setParam({ from: f || null, to: t || null });
+              }}
+            />
+            <span className="text-xs text-muted-foreground">
+              {ranged
+                ? `Counts from ${fmtDate(from)} to ${fmtDate(to)}: working days = present + absent. Class days with no mark are not counted.`
+                : from || to
+                  ? "Choose both dates (To on or after From)."
+                  : "Leave empty for the whole term."}
+            </span>
           </div>
           <p className="text-xs text-muted-foreground">
             Showing {rows.length} of {total} students
@@ -336,7 +363,7 @@ export function StudentsPage() {
             {demoCount > 0 && <> · includes {demoCount} demo students (N99…)</>}
           </p>
           {isOwner && selected.size > 0 && <BulkDeleteBar ids={[...selected]} onClear={() => setSelected(new Set())} />}
-          <StudentRows rows={rows} selection={isOwner ? { selected, onChange: setSelected } : undefined} />
+          <StudentRows rows={rows} ranged={ranged} selection={isOwner ? { selected, onChange: setSelected } : undefined} />
           {list.isSuccess && rows.length === 0 && <p className="py-2 text-sm text-muted-foreground">No students match these filters.</p>}
         </CardContent>
       </Card>
@@ -439,7 +466,9 @@ function BulkDeleteBar({ ids, onClear }: { ids: string[]; onClear: () => void })
 }
 
 /** The student table (desktop) and stacked cards (phones). Names and NIAT IDs open the student. */
-function StudentRows({ rows, compact, selection }: { rows: AdminStudent[]; compact?: boolean; selection?: Selection }) {
+/** ranged: a date filter is on, so working days are Present + Absent (the marked class days). */
+function StudentRows({ rows, compact, selection, ranged }: { rows: AdminStudent[]; compact?: boolean; selection?: Selection; ranged?: boolean }) {
+  const working = (s: AdminStudent) => (ranged ? s.summary.marked_days : s.summary.counted_days);
   const term = useTermParam();
   const link = "hover:text-primary hover:underline";
   const allShown = rows.length > 0 && !!selection && rows.every((s) => selection.selected.has(s.niat_id));
@@ -519,7 +548,7 @@ function StudentRows({ rows, compact, selection }: { rows: AdminStudent[]; compa
                 {!compact && <td className="px-3">{hallLabel(s.hall_no)}</td>}
                 <td className="px-3 text-right tabular-nums">{s.summary.days_attended}</td>
                 {!compact && <td className="px-3 text-right tabular-nums">{s.summary.days_absent}</td>}
-                <td className="px-3 text-right tabular-nums">{s.summary.counted_days}</td>
+                <td className="px-3 text-right tabular-nums">{working(s)}</td>
                 <td className="px-3 text-right">
                   <Attendance s={s} />
                 </td>
@@ -555,7 +584,7 @@ function StudentRows({ rows, compact, selection }: { rows: AdminStudent[]; compa
                 <Attendance s={s} />
               </div>
               <div className="mt-2 text-xs text-muted-foreground">
-                Present {s.summary.days_attended} · Absent {s.summary.days_absent} · of {s.summary.counted_days} days
+                Present {s.summary.days_attended} · Absent {s.summary.days_absent} · of {working(s)} days
               </div>
             </Link>
           </li>

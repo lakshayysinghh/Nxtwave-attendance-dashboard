@@ -12,6 +12,7 @@ type Querier interface {
 	// Copies the given (date, applies_to) entries, with every detail, into the deletion.
 	ArchiveCalendarEntries(ctx context.Context, arg ArchiveCalendarEntriesParams) (int64, error)
 	CancelPeriod(ctx context.Context, arg CancelPeriodParams) (StudentPeriod, error)
+	CancelPeriodInBatch(ctx context.Context, arg []CancelPeriodInBatchParams) *CancelPeriodInBatchBatchResults
 	ClearCurrentTerm(ctx context.Context, id int64) error
 	CountAttendanceBetween(ctx context.Context, arg CountAttendanceBetweenParams) (int64, error)
 	// Dates in the range that already have marks for students the entry applies to.
@@ -63,6 +64,9 @@ type Querier interface {
 	// (role, status or password), so in-app changes survive restarts.
 	InsertOwnerIfMissing(ctx context.Context, email string) error
 	InsertPeriod(ctx context.Context, arg InsertPeriodParams) (StudentPeriod, error)
+	// Batched forms of InsertPeriod, UpdatePeriod and CancelPeriod for imports:
+	// sent together in one round trip, each still failing on a missing row.
+	InsertPeriodInBatch(ctx context.Context, arg []InsertPeriodInBatchParams) *InsertPeriodInBatchBatchResults
 	// Seed only: never overwrites an existing student.
 	InsertStudentIfMissing(ctx context.Context, arg InsertStudentIfMissingParams) (int64, error)
 	// Seed only: adds the term unless one with the same name exists.
@@ -133,6 +137,7 @@ type Querier interface {
 	// reset will no longer remove them) and the edit is recorded.
 	UpdateCalendarEntriesByKeys(ctx context.Context, arg UpdateCalendarEntriesByKeysParams) (int64, error)
 	UpdatePeriod(ctx context.Context, arg UpdatePeriodParams) (StudentPeriod, error)
+	UpdatePeriodInBatch(ctx context.Context, arg []UpdatePeriodInBatchParams) *UpdatePeriodInBatchBatchResults
 	// Admin form: replace every editable field of one student (not the NIAT ID).
 	UpdateStudent(ctx context.Context, arg UpdateStudentParams) (Student, error)
 	UpdateTerm(ctx context.Context, arg UpdateTermParams) (Term, error)
@@ -151,6 +156,11 @@ type Querier interface {
 	// (blank cells) keep what is stored; required fields always overwrite.
 	UpsertStudentFromImport(ctx context.Context, arg UpsertStudentFromImportParams) error
 	UpsertStudentRemark(ctx context.Context, arg UpsertStudentRemarkParams) error
+	// The student import in one statement: the same rules as
+	// UpsertStudentFromImport for every row. An empty level, hall or joined-on
+	// and a poc_id of 0 mean a blank cell, which keeps the stored value. The
+	// NIAT IDs must be distinct (the importer reports duplicates as errors).
+	UpsertStudentsFromImport(ctx context.Context, arg UpsertStudentsFromImportParams) error
 }
 
 var _ Querier = (*Queries)(nil)

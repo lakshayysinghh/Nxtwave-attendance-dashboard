@@ -590,3 +590,55 @@ func (q *Queries) UpsertStudentFromImport(ctx context.Context, arg UpsertStudent
 	)
 	return err
 }
+
+const upsertStudentsFromImport = `-- name: UpsertStudentsFromImport :exec
+INSERT INTO students (niat_id, full_name, degree_code, section, level, hall_no, poc_id, joined_on)
+SELECT u.niat_id, u.full_name, u.degree_code, u.section,
+       NULLIF(u.level, ''), NULLIF(u.hall_no, ''), NULLIF(u.poc_id, 0), NULLIF(u.joined_on, '')::date
+FROM (SELECT unnest($1::text[])     AS niat_id,
+             unnest($2::text[])   AS full_name,
+             unnest($3::text[]) AS degree_code,
+             unnest($4::text[])     AS section,
+             unnest($5::text[])       AS level,
+             unnest($6::text[])     AS hall_no,
+             unnest($7::bigint[])    AS poc_id,
+             unnest($8::text[])   AS joined_on) u
+ON CONFLICT (niat_id) DO UPDATE SET
+    full_name   = EXCLUDED.full_name,
+    degree_code = EXCLUDED.degree_code,
+    section     = EXCLUDED.section,
+    level       = COALESCE(EXCLUDED.level, students.level),
+    hall_no     = COALESCE(EXCLUDED.hall_no, students.hall_no),
+    poc_id      = COALESCE(EXCLUDED.poc_id, students.poc_id),
+    joined_on   = COALESCE(EXCLUDED.joined_on, students.joined_on),
+    updated_at  = now()
+`
+
+type UpsertStudentsFromImportParams struct {
+	NiatIds     []string `json:"niat_ids"`
+	FullNames   []string `json:"full_names"`
+	DegreeCodes []string `json:"degree_codes"`
+	Sections    []string `json:"sections"`
+	Levels      []string `json:"levels"`
+	HallNos     []string `json:"hall_nos"`
+	PocIds      []int64  `json:"poc_ids"`
+	JoinedOns   []string `json:"joined_ons"`
+}
+
+// The student import in one statement: the same rules as
+// UpsertStudentFromImport for every row. An empty level, hall or joined-on
+// and a poc_id of 0 mean a blank cell, which keeps the stored value. The
+// NIAT IDs must be distinct (the importer reports duplicates as errors).
+func (q *Queries) UpsertStudentsFromImport(ctx context.Context, arg UpsertStudentsFromImportParams) error {
+	_, err := q.db.Exec(ctx, upsertStudentsFromImport,
+		arg.NiatIds,
+		arg.FullNames,
+		arg.DegreeCodes,
+		arg.Sections,
+		arg.Levels,
+		arg.HallNos,
+		arg.PocIds,
+		arg.JoinedOns,
+	)
+	return err
+}

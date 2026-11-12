@@ -89,6 +89,14 @@ func (s *Server) handleAdminStudents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	from, to := rl.termRange()
+	// ?from=&to= replaces the term with those dates for every student.
+	rf, rt, ranged, ok := rangeParam(w, r)
+	if !ok {
+		return
+	}
+	if ranged {
+		from, to = rf, rt
+	}
 	ids := make([]string, len(rows))
 	for i, st := range rows {
 		ids[i] = st.NiatID
@@ -112,6 +120,7 @@ func (s *Server) handleAdminStudents(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"term": toTermJSON(rl), "today": stats.DateKey(rl.today), "students": out,
+		"range":    map[string]any{"from": stats.DateKey(from), "to": stats.DateKey(to), "custom": ranged},
 		"overview": stats.Summarise(sums, lowThreshold),
 	})
 }

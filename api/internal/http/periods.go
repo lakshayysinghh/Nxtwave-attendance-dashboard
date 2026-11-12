@@ -209,6 +209,21 @@ func optDate(d *time.Time) pgtype.Date {
 
 // applyImportPeriods stores planned periods inside the import transaction.
 func applyImportPeriods(ctx context.Context, q *db.Queries, changes []periodChange, adminID int64) error {
+	// Changes are queued and sent in one round trip. Only a change that
+	// needs the ID of a period inserted earlier in this import (a negative
+	// temporary ID) waits for the queue to run first; an insert whose ID is
+	// needed later runs on its own so its ID is known.
+	referenced := map[int64]bool{}
+	for _, ch := range changes {
+		if ch.plan.ExtendID < 0 {
+			referenced[ch.plan.ExtendID] = true
+		}
+		for _, id := range ch.plan.MergeIDs {
+			if id < 0 {
+				referenced[id] = true
+			}
+		}
+	}
 	saved := map[int64]int64{}
 	resolve := func(id int64) int64 {
 		if id < 0 {
@@ -216,35 +231,99 @@ func applyImportPeriods(ctx context.Context, q *db.Queries, changes []periodChan
 		}
 		return id
 	}
+	var inserts []db.InsertPeriodInBatchParams
+	var updates []db.UpdatePeriodInBatchParams
+	var cancels []db.CancelPeriodInBatchParams
+	queued := ""
+	// Only one kind of statement is queued at a time (switching kind sends
+	// the queue first), so statements run in exactly the original order.
+	flush := func() error {
+		var err error
+		if len(inserts) > 0 {
+			q.InsertPeriodInBatch(ctx, inserts).QueryRow(func(_ int, _ int64, e error) {
+				if e != nil && err == nil {
+					err = fmt.Errorf("insert period: %w", e)
+				}
+			})
+		}
+		if err == nil && len(updates) > 0 {
+			q.UpdatePeriodInBatch(ctx, updates).QueryRow(func(_ int, _ int64, e error) {
+				if e != nil && err == nil {
+					err = fmt.Errorf("update period: %w", e)
+				}
+			})
+		}
+		if err == nil && len(cancels) > 0 {
+			q.CancelPeriodInBatch(ctx, cancels).QueryRow(func(_ int, _ int64, e error) {
+				if e != nil && err == nil {
+					err = fmt.Errorf("merge period: %w", e)
+				}
+			})
+		}
+		inserts, updates, cancels, queued = nil, nil, nil, ""
+		return err
+	}
+	queue := func(kind string) error {
+		if queued != "" && queued != kind {
+			if err := flush(); err != nil {
+				return err
+			}
+		}
+		queued = kind
+		return nil
+	}
 	for _, ch := range changes {
 		if ch.action == "unchanged" {
 			continue
 		}
+		needsSaved := ch.plan.ExtendID < 0
+		for _, id := range ch.plan.MergeIDs {
+			needsSaved = needsSaved || id < 0
+		}
+		if needsSaved || (ch.plan.ExtendID == 0 && referenced[ch.tempID]) {
+			if err := flush(); err != nil {
+				return err
+			}
+		}
 		if ch.plan.ExtendID == 0 {
-			p, err := q.InsertPeriod(ctx, db.InsertPeriodParams{
+			p := db.InsertPeriodInBatchParams{
 				NiatID: ch.niatID, Kind: string(ch.kind), StartDate: pgDate(ch.plan.Start), EndDate: pgDate(ch.plan.End),
 				CompletedOn: optDate(ch.plan.CompletedOn), Source: "import", AdminID: adminID,
-			})
-			if err != nil {
-				return fmt.Errorf("insert period: %w", err)
 			}
-			saved[ch.tempID] = p.ID
+			if referenced[ch.tempID] {
+				row, err := q.InsertPeriod(ctx, db.InsertPeriodParams(p))
+				if err != nil {
+					return fmt.Errorf("insert period: %w", err)
+				}
+				saved[ch.tempID] = row.ID
+			} else {
+				if err := queue("insert"); err != nil {
+					return err
+				}
+				inserts = append(inserts, p)
+			}
 		} else {
-			_, err := q.UpdatePeriod(ctx, db.UpdatePeriodParams{
+			if err := queue("update"); err != nil {
+				return err
+			}
+			updates = append(updates, db.UpdatePeriodInBatchParams{
 				ID: resolve(ch.plan.ExtendID), StartDate: pgDate(ch.plan.Start), EndDate: pgDate(ch.plan.End),
 				CompletedOn: optDate(ch.plan.CompletedOn), AdminID: adminID,
 			})
-			if err != nil {
-				return fmt.Errorf("update period: %w", err)
-			}
 		}
 		for _, id := range ch.plan.MergeIDs {
-			if _, err := q.CancelPeriod(ctx, db.CancelPeriodParams{ID: resolve(id), AdminID: adminID}); err != nil {
-				return fmt.Errorf("merge period: %w", err)
+			if err := queue("cancel"); err != nil {
+				return err
+			}
+			cancels = append(cancels, db.CancelPeriodInBatchParams{ID: resolve(id), AdminID: adminID})
+		}
+		if needsSaved {
+			if err := flush(); err != nil {
+				return err
 			}
 		}
 	}
-	return nil
+	return flush()
 }
 
 // ---- Admin: internship periods ----

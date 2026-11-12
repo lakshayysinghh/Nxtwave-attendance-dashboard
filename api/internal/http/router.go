@@ -79,6 +79,7 @@ func (s *Server) Routes() http.Handler {
 
 		r.Get("/public/students/{niat_id}", s.handlePublicProfile)
 		r.Get("/public/students/{niat_id}/month", s.handlePublicMonth)
+		r.Get("/public/students/{niat_id}/range", s.handlePublicRange)
 
 		r.Route("/admin", func(r chi.Router) {
 			r.Use(s.requireAdmin, s.requirePasswordChanged)
@@ -89,6 +90,7 @@ func (s *Server) Routes() http.Handler {
 			r.With(s.requireOwner).Delete("/students/{niat_id}", s.handleDeleteStudent)
 			r.With(s.requireOwner).Post("/students/bulk-delete", s.handleBulkDeleteStudents)
 			r.Get("/students/{niat_id}/month", s.handleAdminStudentMonth)
+			r.Get("/students/{niat_id}/range", s.handleAdminStudentRange)
 			r.Put("/students/{niat_id}/remarks/{ym}", s.handleSetRemark)
 			r.Get("/students/{niat_id}/periods", s.handleStudentPeriods)
 			r.Post("/students/{niat_id}/internships", s.handleCreateInternship)

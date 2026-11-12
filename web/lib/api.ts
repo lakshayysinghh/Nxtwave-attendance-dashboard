@@ -13,6 +13,8 @@ export type Summary = {
   days_attended: number;
   days_absent: number;
   not_marked_days: number;
+  /** Present + Absent: the counted days with a mark (the % is taken over these). */
+  marked_days: number;
   pct: number | null;
   band: Band;
 };
@@ -110,7 +112,10 @@ export type AdminStudent = {
 
 /** Students list filters; hall "" means students with no hall, undefined means any hall. */
 /** term is a term id; empty means the current term. */
-export type StudentFilters = { q?: string; degree?: string; section?: string; hall?: string; term?: string };
+export type StudentFilters = { q?: string; degree?: string; section?: string; hall?: string; term?: string; from?: string; to?: string };
+
+/** A student's counts for a date range. clipped: narrowed to the current term (student view). */
+export type RangeResult = { from: string; to: string; summary: Summary; clipped: boolean; outside_term: boolean };
 
 export type Hall = { hall: string; students: number };
 
@@ -161,6 +166,10 @@ export const api = {
   profile: (id: string) => request<Profile>(`/api/public/students/${encodeURIComponent(id)}`),
   month: (id: string, ym: string) =>
     request<Month>(`/api/public/students/${encodeURIComponent(id)}/month?ym=${ym}`),
+  range: (id: string, from: string, to: string) =>
+    request<RangeResult>(`/api/public/students/${encodeURIComponent(id)}/range?${new URLSearchParams({ from, to })}`),
+  adminRange: (id: string, from: string, to: string) =>
+    request<RangeResult>(`/api/admin/students/${encodeURIComponent(id)}/range?${new URLSearchParams({ from, to })}`),
   me: () => request<Me>("/api/auth/me"),
   login: (email: string, password: string) =>
     request<Me>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
@@ -171,7 +180,13 @@ export const api = {
     const qs = new URLSearchParams({ q: f.q ?? "", degree: f.degree ?? "", section: f.section ?? "" });
     if (f.hall !== undefined) qs.set("hall", f.hall);
     if (f.term) qs.set("term", f.term);
-    return request<{ term: Term; today: string; students: AdminStudent[]; overview: Overview }>(`/api/admin/students?${qs}`);
+    if (f.from && f.to) {
+      qs.set("from", f.from);
+      qs.set("to", f.to);
+    }
+    return request<{ term: Term; today: string; students: AdminStudent[]; overview: Overview; range: { from: string; to: string; custom: boolean } }>(
+      `/api/admin/students?${qs}`,
+    );
   },
   /** The admin view of one student: the student profile plus admin-only fields, for any status. */
   adminStudent: (id: string, term = "") =>

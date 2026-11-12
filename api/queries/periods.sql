@@ -41,3 +41,25 @@ UPDATE student_periods
 SET cancelled_at = now(), cancelled_by = sqlc.arg(admin_id)::bigint, updated_at = now(), updated_by = sqlc.arg(admin_id)::bigint
 WHERE id = sqlc.arg(id) AND cancelled_at IS NULL
 RETURNING *;
+
+-- Batched forms of InsertPeriod, UpdatePeriod and CancelPeriod for imports:
+-- sent together in one round trip, each still failing on a missing row.
+
+-- name: InsertPeriodInBatch :batchone
+INSERT INTO student_periods (niat_id, kind, start_date, end_date, completed_on, source, created_by, updated_by)
+VALUES (sqlc.arg(niat_id), sqlc.arg(kind), sqlc.arg(start_date), sqlc.arg(end_date), sqlc.narg(completed_on),
+        sqlc.arg(source), sqlc.arg(admin_id)::bigint, sqlc.arg(admin_id)::bigint)
+RETURNING id;
+
+-- name: UpdatePeriodInBatch :batchone
+UPDATE student_periods
+SET start_date = sqlc.arg(start_date), end_date = sqlc.arg(end_date), completed_on = sqlc.narg(completed_on),
+    updated_at = now(), updated_by = sqlc.arg(admin_id)::bigint
+WHERE id = sqlc.arg(id) AND cancelled_at IS NULL
+RETURNING id;
+
+-- name: CancelPeriodInBatch :batchone
+UPDATE student_periods
+SET cancelled_at = now(), cancelled_by = sqlc.arg(admin_id)::bigint, updated_at = now(), updated_by = sqlc.arg(admin_id)::bigint
+WHERE id = sqlc.arg(id) AND cancelled_at IS NULL
+RETURNING id;

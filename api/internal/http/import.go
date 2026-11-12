@@ -109,6 +109,7 @@ func (s *Server) handleImportStudents(w http.ResponseWriter, r *http.Request) {
 
 	err = pgx.BeginFunc(r.Context(), s.pool, func(tx pgx.Tx) error {
 		q := db.New(tx)
+		var batch db.UpsertStudentsFromImportParams
 		for _, row := range resp.Rows {
 			if row.Action != "new" && row.Action != "update" {
 				continue
@@ -129,17 +130,26 @@ func (s *Server) handleImportStudents(w http.ResponseWriter, r *http.Request) {
 				}
 				poc = pgtype.Int8{Int64: id, Valid: true}
 			}
-			p := db.UpsertStudentFromImportParams{
-				NiatID: row.NiatID, FullName: row.Name, DegreeCode: row.Degree, Section: row.Section,
-				Level: optionalText(row.Level), HallNo: optionalText(row.HallNo), PocID: poc,
-			}
+			// One statement for every row (see UpsertStudentsFromImport):
+			// a blank level, hall or joined-on is "", no POC is 0.
+			batch.NiatIds = append(batch.NiatIds, row.NiatID)
+			batch.FullNames = append(batch.FullNames, row.Name)
+			batch.DegreeCodes = append(batch.DegreeCodes, row.Degree)
+			batch.Sections = append(batch.Sections, row.Section)
+			batch.Levels = append(batch.Levels, row.Level)
+			batch.HallNos = append(batch.HallNos, row.HallNo)
+			batch.PocIds = append(batch.PocIds, poc.Int64)
+			joined := ""
 			if row.JoinedOn != nil {
-				p.JoinedOn = pgDate(*row.JoinedOn)
+				joined = stats.DateKey(*row.JoinedOn)
 			}
-			if err := q.UpsertStudentFromImport(r.Context(), p); err != nil {
-				return fmt.Errorf("row %d: %w", row.Row, err)
+			batch.JoinedOns = append(batch.JoinedOns, joined)
+		}
+		if len(batch.NiatIds) > 0 {
+			if err := q.UpsertStudentsFromImport(r.Context(), batch); err != nil {
+				return fmt.Errorf("save students: %w", err)
 			}
-			resp.Saved++
+			resp.Saved = len(batch.NiatIds)
 		}
 		if resp.Attendance == nil {
 			return nil

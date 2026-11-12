@@ -101,3 +101,29 @@ SELECT count(*) FROM attendance WHERE niat_id = ANY(sqlc.arg(niat_ids)::text[]);
 -- Permanent bulk delete; marks and remarks go with the students (ON DELETE CASCADE).
 DELETE FROM students WHERE niat_id = ANY(sqlc.arg(niat_ids)::text[])
 RETURNING niat_id;
+
+-- name: UpsertStudentsFromImport :exec
+-- The student import in one statement: the same rules as
+-- UpsertStudentFromImport for every row. An empty level, hall or joined-on
+-- and a poc_id of 0 mean a blank cell, which keeps the stored value. The
+-- NIAT IDs must be distinct (the importer reports duplicates as errors).
+INSERT INTO students (niat_id, full_name, degree_code, section, level, hall_no, poc_id, joined_on)
+SELECT u.niat_id, u.full_name, u.degree_code, u.section,
+       NULLIF(u.level, ''), NULLIF(u.hall_no, ''), NULLIF(u.poc_id, 0), NULLIF(u.joined_on, '')::date
+FROM (SELECT unnest(sqlc.arg(niat_ids)::text[])     AS niat_id,
+             unnest(sqlc.arg(full_names)::text[])   AS full_name,
+             unnest(sqlc.arg(degree_codes)::text[]) AS degree_code,
+             unnest(sqlc.arg(sections)::text[])     AS section,
+             unnest(sqlc.arg(levels)::text[])       AS level,
+             unnest(sqlc.arg(hall_nos)::text[])     AS hall_no,
+             unnest(sqlc.arg(poc_ids)::bigint[])    AS poc_id,
+             unnest(sqlc.arg(joined_ons)::text[])   AS joined_on) u
+ON CONFLICT (niat_id) DO UPDATE SET
+    full_name   = EXCLUDED.full_name,
+    degree_code = EXCLUDED.degree_code,
+    section     = EXCLUDED.section,
+    level       = COALESCE(EXCLUDED.level, students.level),
+    hall_no     = COALESCE(EXCLUDED.hall_no, students.hall_no),
+    poc_id      = COALESCE(EXCLUDED.poc_id, students.poc_id),
+    joined_on   = COALESCE(EXCLUDED.joined_on, students.joined_on),
+    updated_at  = now();

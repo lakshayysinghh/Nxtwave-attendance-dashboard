@@ -183,12 +183,15 @@ type Marks map[string]Status
 
 // Summary counts a student's counted days over a period.
 type Summary struct {
-	CountedDays int      `json:"counted_days"`
-	Present     int      `json:"days_attended"`
-	Absent      int      `json:"days_absent"`
-	NotMarked   int      `json:"not_marked_days"`
-	Pct         *float64 `json:"pct"` // nil when nothing is marked ("–")
-	Band        Band     `json:"band"`
+	CountedDays int `json:"counted_days"`
+	Present     int `json:"days_attended"`
+	Absent      int `json:"days_absent"`
+	NotMarked   int `json:"not_marked_days"`
+	// MarkedDays = Present + Absent: the counted days that have a mark, which
+	// are the days the % is taken over (the date filter calls them working days).
+	MarkedDays int      `json:"marked_days"`
+	Pct        *float64 `json:"pct"` // nil when nothing is marked ("–")
+	Band       Band     `json:"band"`
 }
 
 func (s *Summary) add(st Status) {
@@ -206,7 +209,8 @@ func (s *Summary) add(st Status) {
 // finish sets the % = present ÷ (present + absent) × 100, to one decimal.
 // Unmarked days are left out, so a blank never counts as absent.
 func (s *Summary) finish() {
-	if marked := s.Present + s.Absent; marked > 0 {
+	s.MarkedDays = s.Present + s.Absent
+	if marked := s.MarkedDays; marked > 0 {
 		p := math.Round(float64(s.Present)*1000/float64(marked)) / 10
 		s.Pct = &p
 	}
@@ -406,4 +410,16 @@ func PlacementStatus(term Summary, months []MonthSummary) Placement {
 func belowPlacement(s Summary) bool {
 	marked := s.Present + s.Absent
 	return marked > 0 && 100*s.Present < PlacementThreshold*marked
+}
+
+// ClipToTerm narrows from..to to the term's dates. ok is false when the two
+// do not overlap.
+func ClipToTerm(from, to time.Time, t Term) (time.Time, time.Time, bool) {
+	if from.Before(t.Start) {
+		from = t.Start
+	}
+	if to.After(t.End) {
+		to = t.End
+	}
+	return from, to, !to.Before(from)
 }

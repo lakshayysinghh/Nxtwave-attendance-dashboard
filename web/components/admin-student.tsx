@@ -73,6 +73,7 @@ export function AdminStudentPage({ niatId }: { niatId: string }) {
           p={p}
           monthKey="admin-month"
           fetchMonth={(ym) => api.adminMonth(p.student.niat_id, ym)}
+          fetchRange={(from, to) => api.adminRange(p.student.niat_id, from, to)}
           extraFields={adminFields(p.student)}
           onSaveRemark={saveRemark}
           periodsCard={<InternshipAdminCard p={p} />}
