@@ -133,6 +133,7 @@ export function ImportAttendance() {
         {preview && s && (
           <>
             <AttendancePreview
+              source="attendance"
               preview={preview}
               columnDates={columnDates}
               onColumnDates={recheck}
@@ -182,7 +183,10 @@ export function AttendancePreview({
   onColumnDates,
   valueMap,
   onValueMap,
+  source,
 }: {
+  /** The import tab, recorded with calendar entries saved from this preview. */
+  source: "attendance" | "students";
   preview: AttendanceImportResult;
   columnDates: Record<number, string>;
   onColumnDates: (next: Record<number, string>) => void;
@@ -262,6 +266,7 @@ export function AttendancePreview({
         <MissingDateSuggestions
           key={preview.missing_dates.map((m) => m.date + m.entries.length).join()}
           missing={preview.missing_dates}
+          upload={{ file_name: preview.file_name, kind: source }}
           onSaved={() => {
             qc.invalidateQueries();
             onColumnDates(columnDates); // refresh the preview with the new calendar
@@ -510,7 +515,15 @@ const kindLabel: Record<string, string> = { working: "Working", holiday: "Holida
  * left out). Only suggestions: the admin picks which to save as calendar
  * entries. Attendance marks are never changed here.
  */
-function MissingDateSuggestions({ missing, onSaved }: { missing: MissingDate[]; onSaved: () => void }) {
+function MissingDateSuggestions({
+  missing,
+  upload,
+  onSaved,
+}: {
+  missing: MissingDate[];
+  upload: { file_name: string; kind: "attendance" | "students" };
+  onSaved: () => void;
+}) {
   // Start with the dates that have no calendar entry yet.
   const [selected, setSelected] = useState<Set<string>>(() => new Set(missing.filter((m) => m.entries.length === 0).map((m) => m.date)));
   const [dayType, setDayType] = useState<"holiday" | "exam" | "exam_prep">("holiday");
@@ -532,6 +545,7 @@ function MissingDateSuggestions({ missing, onSaved }: { missing: MissingDate[]; 
     mutationFn: () =>
       saveCalendarEntries(
         missing.filter((m) => selected.has(m.date)).map((m) => ({ date: m.date, applies_to: scope, day_type: dayType, label: label.trim() })),
+        upload,
       ),
     onSuccess: (r) => {
       setMsg({ ok: true, text: `Saved ${r.saved} calendar entr${r.saved === 1 ? "y" : "ies"}.${r.warning ? " " + r.warning : ""}` });

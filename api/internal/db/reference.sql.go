@@ -106,7 +106,7 @@ func (q *Queries) InsertTermIfMissing(ctx context.Context, arg InsertTermIfMissi
 }
 
 const listCalendarDays = `-- name: ListCalendarDays :many
-SELECT id, date, applies_to, day_type, counts, label FROM calendar_days
+SELECT id, date, applies_to, day_type, counts, label, source, batch_id, created_at, created_by, updated_at, updated_by FROM calendar_days
 WHERE date BETWEEN $1::date AND $2::date
 ORDER BY date, applies_to
 `
@@ -132,6 +132,12 @@ func (q *Queries) ListCalendarDays(ctx context.Context, arg ListCalendarDaysPara
 			&i.DayType,
 			&i.Counts,
 			&i.Label,
+			&i.Source,
+			&i.BatchID,
+			&i.CreatedAt,
+			&i.CreatedBy,
+			&i.UpdatedAt,
+			&i.UpdatedBy,
 		); err != nil {
 			return nil, err
 		}

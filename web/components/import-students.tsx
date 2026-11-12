@@ -197,7 +197,7 @@ export function ImportStudents() {
             {att && (
               <div className="flex flex-col gap-3 border-t border-border pt-3">
                 <h3 className="text-sm font-semibold">Attendance in this sheet</h3>
-                <AttendancePreview preview={att} columnDates={columnDates} onColumnDates={recheck} valueMap={valueMap} onValueMap={remap} />
+                <AttendancePreview source="students" preview={att} columnDates={columnDates} onColumnDates={recheck} valueMap={valueMap} onValueMap={remap} />
               </div>
             )}
 

@@ -130,6 +130,79 @@ func (q *Queries) GetTerm(ctx context.Context, id int64) (Term, error) {
 	return i, err
 }
 
+const listCalendarEntries = `-- name: ListCalendarEntries :many
+SELECT c.date, c.applies_to, c.day_type, c.counts, c.label, c.source, c.batch_id,
+       c.created_at, c.updated_at, c.created_by, c.updated_by,
+       b.file_name AS batch_file_name, b.kind AS batch_kind,
+       ca.name AS created_by_name, ca.email AS created_by_email,
+       ua.name AS updated_by_name, ua.email AS updated_by_email
+FROM calendar_days c
+LEFT JOIN import_batches b ON b.id = c.batch_id
+LEFT JOIN admins ca ON ca.id = c.created_by
+LEFT JOIN admins ua ON ua.id = c.updated_by
+ORDER BY c.applies_to, c.date
+`
+
+type ListCalendarEntriesRow struct {
+	Date           pgtype.Date        `json:"date"`
+	AppliesTo      string             `json:"applies_to"`
+	DayType        string             `json:"day_type"`
+	Counts         bool               `json:"counts"`
+	Label          string             `json:"label"`
+	Source         string             `json:"source"`
+	BatchID        pgtype.Int8        `json:"batch_id"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	CreatedBy      pgtype.Int8        `json:"created_by"`
+	UpdatedBy      pgtype.Int8        `json:"updated_by"`
+	BatchFileName  pgtype.Text        `json:"batch_file_name"`
+	BatchKind      pgtype.Text        `json:"batch_kind"`
+	CreatedByName  pgtype.Text        `json:"created_by_name"`
+	CreatedByEmail pgtype.Text        `json:"created_by_email"`
+	UpdatedByName  pgtype.Text        `json:"updated_by_name"`
+	UpdatedByEmail pgtype.Text        `json:"updated_by_email"`
+}
+
+// Every calendar entry with where it came from. Batch and admin details are
+// NULL for legacy entries, and for an admin account that was deleted.
+func (q *Queries) ListCalendarEntries(ctx context.Context) ([]ListCalendarEntriesRow, error) {
+	rows, err := q.db.Query(ctx, listCalendarEntries)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCalendarEntriesRow
+	for rows.Next() {
+		var i ListCalendarEntriesRow
+		if err := rows.Scan(
+			&i.Date,
+			&i.AppliesTo,
+			&i.DayType,
+			&i.Counts,
+			&i.Label,
+			&i.Source,
+			&i.BatchID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CreatedBy,
+			&i.UpdatedBy,
+			&i.BatchFileName,
+			&i.BatchKind,
+			&i.CreatedByName,
+			&i.CreatedByEmail,
+			&i.UpdatedByName,
+			&i.UpdatedByEmail,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMarkedDatesByDegree = `-- name: ListMarkedDatesByDegree :many
 SELECT DISTINCT a.date, s.degree_code FROM attendance a
 JOIN students s ON s.niat_id = a.niat_id
@@ -214,13 +287,17 @@ func (q *Queries) UpdateTerm(ctx context.Context, arg UpdateTermParams) (Term, e
 	return i, err
 }
 
-const upsertCalendarRange = `-- name: UpsertCalendarRange :execrows
-INSERT INTO calendar_days (date, applies_to, day_type, counts, label)
-SELECT d::date, $1::text, $2::text, $3::boolean, $4::text
-FROM generate_series($5::date, $6::date, interval '1 day') AS d
-WHERE NOT ($7::boolean AND extract(dow FROM d) = 0)
+const upsertCalendarRange = `-- name: UpsertCalendarRange :many
+INSERT INTO calendar_days (date, applies_to, day_type, counts, label, source, batch_id, created_at, created_by, updated_at, updated_by)
+SELECT d::date, $1::text, $2::text, $3::boolean, $4::text,
+       $5::text, $6::bigint, now(), $7::bigint, now(), $7::bigint
+FROM generate_series($8::date, $9::date, interval '1 day') AS d
+WHERE NOT ($10::boolean AND extract(dow FROM d) = 0)
 ON CONFLICT (date, applies_to) DO UPDATE
-SET day_type = EXCLUDED.day_type, counts = EXCLUDED.counts, label = EXCLUDED.label
+SET day_type = EXCLUDED.day_type, counts = EXCLUDED.counts, label = EXCLUDED.label,
+    source = EXCLUDED.source, batch_id = EXCLUDED.batch_id, updated_at = now(), updated_by = EXCLUDED.updated_by
+WHERE (calendar_days.day_type, calendar_days.counts, calendar_days.label) IS DISTINCT FROM (EXCLUDED.day_type, EXCLUDED.counts, EXCLUDED.label)
+RETURNING date, (xmax = 0)::boolean AS inserted
 `
 
 type UpsertCalendarRangeParams struct {
@@ -228,25 +305,50 @@ type UpsertCalendarRangeParams struct {
 	DayType     string      `json:"day_type"`
 	Counts      bool        `json:"counts"`
 	Label       string      `json:"label"`
+	Source      string      `json:"source"`
+	BatchID     pgtype.Int8 `json:"batch_id"`
+	AdminID     pgtype.Int8 `json:"admin_id"`
 	FromDate    pgtype.Date `json:"from_date"`
 	ToDate      pgtype.Date `json:"to_date"`
 	SkipSundays bool        `json:"skip_sundays"`
 }
 
-// One entry per date in the range (optionally skipping Sundays); an existing
-// entry for the same date and applies_to is replaced.
-func (q *Queries) UpsertCalendarRange(ctx context.Context, arg UpsertCalendarRangeParams) (int64, error) {
-	result, err := q.db.Exec(ctx, upsertCalendarRange,
+type UpsertCalendarRangeRow struct {
+	Date     pgtype.Date `json:"date"`
+	Inserted bool        `json:"inserted"`
+}
+
+// Saves every date in the range, recording the source, batch and admin. A
+// date whose type, counts and label are already the same is left untouched
+// (its times and source stay) and not returned. Returns each inserted or
+// changed date; inserted is false for a changed one.
+func (q *Queries) UpsertCalendarRange(ctx context.Context, arg UpsertCalendarRangeParams) ([]UpsertCalendarRangeRow, error) {
+	rows, err := q.db.Query(ctx, upsertCalendarRange,
 		arg.AppliesTo,
 		arg.DayType,
 		arg.Counts,
 		arg.Label,
+		arg.Source,
+		arg.BatchID,
+		arg.AdminID,
 		arg.FromDate,
 		arg.ToDate,
 		arg.SkipSundays,
 	)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return result.RowsAffected(), nil
+	defer rows.Close()
+	var items []UpsertCalendarRangeRow
+	for rows.Next() {
+		var i UpsertCalendarRangeRow
+		if err := rows.Scan(&i.Date, &i.Inserted); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

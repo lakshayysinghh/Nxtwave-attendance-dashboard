@@ -9,11 +9,15 @@ import (
 )
 
 type Querier interface {
+	// Copies the given (date, applies_to) entries, with every detail, into the deletion.
+	ArchiveCalendarEntries(ctx context.Context, arg ArchiveCalendarEntriesParams) (int64, error)
 	CancelPeriod(ctx context.Context, arg CancelPeriodParams) (StudentPeriod, error)
 	ClearCurrentTerm(ctx context.Context, id int64) error
 	CountAttendanceBetween(ctx context.Context, arg CountAttendanceBetweenParams) (int64, error)
 	// Dates in the range that already have marks for students the entry applies to.
 	CountMarkedDatesForDegree(ctx context.Context, arg CountMarkedDatesForDegreeParams) (int64, error)
+	// Saved marks per date and degree, to explain what a calendar change affects.
+	CountMarksByDateAndDegree(ctx context.Context, arg CountMarksByDateAndDegreeParams) ([]CountMarksByDateAndDegreeRow, error)
 	CountMarksForStudents(ctx context.Context, niatIds []string) (int64, error)
 	CountStudentMarks(ctx context.Context, niatID string) (int64, error)
 	// Returns no row when the email is already taken.
@@ -23,6 +27,7 @@ type Querier interface {
 	CreateTerm(ctx context.Context, arg CreateTermParams) (Term, error)
 	// Marks and imports they made keep their values; updated_by and uploaded_by become NULL.
 	DeleteAdmin(ctx context.Context, id int64) (int64, error)
+	DeleteCalendarEntriesByKeys(ctx context.Context, arg DeleteCalendarEntriesByKeysParams) (int64, error)
 	DeleteCalendarRange(ctx context.Context, arg DeleteCalendarRangeParams) (int64, error)
 	// Removes one category's marks in a date range; marks of any other category
 	// (including regular marks set by hand) stay.
@@ -46,7 +51,9 @@ type Querier interface {
 	GetStudentsByIDs(ctx context.Context, niatIds []string) ([]Student, error)
 	GetTerm(ctx context.Context, id int64) (Term, error)
 	InsertCalendarDayIfMissing(ctx context.Context, arg InsertCalendarDayIfMissingParams) error
+	InsertCalendarDeletion(ctx context.Context, arg InsertCalendarDeletionParams) (InsertCalendarDeletionRow, error)
 	InsertDegreeIfMissing(ctx context.Context, arg InsertDegreeIfMissingParams) error
+	InsertImportBatch(ctx context.Context, arg InsertImportBatchParams) (int64, error)
 	// Seed only: keeps any mark that already exists.
 	InsertMarksIfMissing(ctx context.Context, arg InsertMarksIfMissingParams) (int64, error)
 	// Adds marks only on days that have none; existing marks are left as they are.
@@ -64,9 +71,20 @@ type Querier interface {
 	ListActiveStudentsInSection(ctx context.Context, arg ListActiveStudentsInSectionParams) ([]Student, error)
 	ListAdmins(ctx context.Context) ([]Admin, error)
 	ListCalendarDays(ctx context.Context, arg ListCalendarDaysParams) ([]CalendarDay, error)
+	ListCalendarDeletions(ctx context.Context) ([]ListCalendarDeletionsRow, error)
+	// Every calendar entry with where it came from. Batch and admin details are
+	// NULL for legacy entries, and for an admin account that was deleted.
+	ListCalendarEntries(ctx context.Context) ([]ListCalendarEntriesRow, error)
+	// The same rows as ListCalendarEntries, locked until the transaction ends so
+	// a deletion or edit works on exactly what was checked.
+	ListCalendarEntriesForUpdate(ctx context.Context) ([]ListCalendarEntriesForUpdateRow, error)
 	ListDegrees(ctx context.Context) ([]Degree, error)
+	ListDeletedEntries(ctx context.Context, deletionID int64) ([]ListDeletedEntriesRow, error)
 	// Active students per hall; '' is students with no hall.
 	ListHalls(ctx context.Context) ([]ListHallsRow, error)
+	// Saved uploads, newest first, with how many calendar entries still point at
+	// each one (a later upload or edit moves an entry to its own batch).
+	ListImportBatches(ctx context.Context) ([]ListImportBatchesRow, error)
 	// Which degrees already have attendance on each date in the range.
 	ListMarkedDatesByDegree(ctx context.Context, arg ListMarkedDatesByDegreeParams) ([]ListMarkedDatesByDegreeRow, error)
 	ListMarks(ctx context.Context, arg ListMarksParams) ([]ListMarksRow, error)
@@ -84,14 +102,22 @@ type Querier interface {
 	// Taken inside a transaction before changing any role or status, so two
 	// concurrent changes cannot both remove the last active Owner.
 	LockActiveOwners(ctx context.Context) ([]int64, error)
+	LockCalendarDeletion(ctx context.Context, id int64) (LockCalendarDeletionRow, error)
 	// Serialises period changes per student inside a transaction.
 	LockStudents(ctx context.Context, niatIds []string) ([]string, error)
+	MarkDeletedEntriesRestored(ctx context.Context, arg MarkDeletedEntriesRestoredParams) error
 	MarkTermCurrent(ctx context.Context, id int64) (Term, error)
 	Ping(ctx context.Context) (int32, error)
+	// Puts back the deleted entries whose date and scope are still free, with
+	// their original details. Entries saved since then on the same date and
+	// scope are kept, and those deleted ones stay in the archive.
+	RestoreDeletedEntries(ctx context.Context, deletionID int64) ([]RestoreDeletedEntriesRow, error)
 	// Public name search. Returns no NIAT IDs.
 	SearchActiveStudentsByName(ctx context.Context, arg SearchActiveStudentsByNameParams) ([]SearchActiveStudentsByNameRow, error)
 	// Fills the display name from the Google profile on first sign-in.
 	SetAdminNameIfEmpty(ctx context.Context, arg SetAdminNameIfEmptyParams) error
+	SetCalendarDeletionRestored(ctx context.Context, arg SetCalendarDeletionRestoredParams) error
+	SetImportBatchSummary(ctx context.Context, arg SetImportBatchSummaryParams) error
 	// `server create-owner`: create or promote the configured Owner and set the
 	// password. Ends any existing sessions for that admin.
 	SetOwnerPassword(ctx context.Context, arg SetOwnerPasswordParams) (Admin, error)
@@ -103,13 +129,18 @@ type Querier interface {
 	// Owner edit of name and email. A changed email ends that admin's sessions.
 	// A taken email fails on the unique constraint.
 	UpdateAdminProfile(ctx context.Context, arg UpdateAdminProfileParams) (Admin, error)
+	// An admin's correction: the entries become manual entries (an imported-entry
+	// reset will no longer remove them) and the edit is recorded.
+	UpdateCalendarEntriesByKeys(ctx context.Context, arg UpdateCalendarEntriesByKeysParams) (int64, error)
 	UpdatePeriod(ctx context.Context, arg UpdatePeriodParams) (StudentPeriod, error)
 	// Admin form: replace every editable field of one student (not the NIAT ID).
 	UpdateStudent(ctx context.Context, arg UpdateStudentParams) (Student, error)
 	UpdateTerm(ctx context.Context, arg UpdateTermParams) (Term, error)
-	// One entry per date in the range (optionally skipping Sundays); an existing
-	// entry for the same date and applies_to is replaced.
-	UpsertCalendarRange(ctx context.Context, arg UpsertCalendarRangeParams) (int64, error)
+	// Saves every date in the range, recording the source, batch and admin. A
+	// date whose type, counts and label are already the same is left untouched
+	// (its times and source stay) and not returned. Returns each inserted or
+	// changed date; inserted is false for a changed one.
+	UpsertCalendarRange(ctx context.Context, arg UpsertCalendarRangeParams) ([]UpsertCalendarRangeRow, error)
 	// categories: '' for a regular mark. A regular mark with the same status as
 	// the stored one keeps the stored category, so re-saving a day does not
 	// drop its INTERNSHIP or REGISTRATION_PENDING tag; a changed status clears it.

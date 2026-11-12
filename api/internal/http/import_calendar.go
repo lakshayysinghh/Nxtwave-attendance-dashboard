@@ -1,13 +1,17 @@
 package http
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"attendance-dashboard/api/internal/db"
 	"attendance-dashboard/api/internal/importer"
@@ -51,25 +55,93 @@ type calendarEntry struct {
 	Label     string
 }
 
+// entrySource says where saved entries come from. With a file name, the save
+// is recorded as an import batch of batchKind and every entry points at it.
+type entrySource struct {
+	source    string // manual, calendar_import, attendance_import, students_import
+	batchKind string // calendar, attendance, students; "" for no batch
+	fileName  string
+	skipped   int // rows left out because of errors (shown in the history)
+	unchanged int // rows already the same, not passed to the save
+}
+
+// batchSummary is stored in import_batches.summary for the import history.
+type batchSummary struct {
+	Created   int      `json:"created"`
+	Updated   int      `json:"updated"`
+	Unchanged int      `json:"unchanged"`
+	Skipped   int      `json:"skipped"`
+	From      string   `json:"from,omitempty"`
+	To        string   `json:"to,omitempty"`
+	Degrees   []string `json:"degrees"`
+}
+
+type calendarSave struct {
+	Created, Updated int
+	BatchID          int64
+}
+
+func optInt8(v int64) pgtype.Int8 { return pgtype.Int8{Int64: v, Valid: v > 0} }
+
 // saveCalendarEntries upserts entries by (date, applies_to) in one
-// transaction, reusing the range upsert with a one-day range.
-func (s *Server) saveCalendarEntries(ctx context.Context, entries []calendarEntry) (int64, error) {
-	var saved int64
+// transaction, reusing the range upsert with a one-day range. Entries that are
+// already the same are left untouched. An import also gets a batch row.
+func (s *Server) saveCalendarEntries(ctx context.Context, entries []calendarEntry, src entrySource) (calendarSave, error) {
+	var res calendarSave
+	adminID := adminFrom(ctx).ID
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := db.New(tx)
+		if src.batchKind != "" {
+			id, err := q.InsertImportBatch(ctx, db.InsertImportBatchParams{Kind: src.batchKind, FileName: src.fileName, UploadedBy: optInt8(adminID)})
+			if err != nil {
+				return fmt.Errorf("insert import batch: %w", err)
+			}
+			res.BatchID = id
+		}
+		sum := batchSummary{Unchanged: src.unchanged, Skipped: src.skipped, Degrees: []string{}}
+		degrees := map[string]bool{}
 		for _, e := range entries {
-			n, err := q.UpsertCalendarRange(ctx, db.UpsertCalendarRangeParams{
+			rows, err := q.UpsertCalendarRange(ctx, db.UpsertCalendarRangeParams{
 				AppliesTo: e.AppliesTo, DayType: e.DayType, Counts: e.Counts, Label: e.Label,
+				Source: src.source, BatchID: optInt8(res.BatchID), AdminID: optInt8(adminID),
 				FromDate: pgDate(e.Date), ToDate: pgDate(e.Date), SkipSundays: false,
 			})
 			if err != nil {
 				return fmt.Errorf("%s %s: %w", stats.DateKey(e.Date), e.AppliesTo, err)
 			}
-			saved += n
+			if len(rows) == 0 {
+				sum.Unchanged++
+				continue
+			}
+			if rows[0].Inserted {
+				res.Created++
+			} else {
+				res.Updated++
+			}
+			k := stats.DateKey(e.Date)
+			if sum.From == "" || k < sum.From {
+				sum.From = k
+			}
+			if k > sum.To {
+				sum.To = k
+			}
+			if !degrees[e.AppliesTo] {
+				degrees[e.AppliesTo] = true
+				sum.Degrees = append(sum.Degrees, e.AppliesTo)
+			}
 		}
-		return nil
+		if res.BatchID == 0 {
+			return nil
+		}
+		sort.Strings(sum.Degrees)
+		sum.Created, sum.Updated = res.Created, res.Updated
+		raw, err := json.Marshal(sum)
+		if err != nil {
+			return err
+		}
+		return q.SetImportBatchSummary(ctx, db.SetImportBatchSummaryParams{ID: res.BatchID, Summary: raw})
 	})
-	return saved, err
+	return res, err
 }
 
 type calendarImportRow struct {
@@ -90,6 +162,7 @@ type calendarImportResponse struct {
 	Rows      []calendarImportRow `json:"rows"`
 	Committed bool                `json:"committed"`
 	Saved     int64               `json:"saved"`
+	BatchID   int64               `json:"batch_id,omitempty"`
 }
 
 // POST /api/admin/imports/calendar (multipart field "file"): preview, or with
@@ -194,10 +267,16 @@ func (s *Server) handleImportCalendar(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("%d row(s) have errors. Fix them, or choose to skip those rows.", resp.Summary.Errors), resp)
 		return
 	}
-	if resp.Saved, err = s.saveCalendarEntries(r.Context(), toSave); err != nil {
+	saved, err := s.saveCalendarEntries(r.Context(), toSave, entrySource{
+		source: "calendar_import", batchKind: "calendar", fileName: header.Filename,
+		skipped: resp.Summary.Errors, unchanged: resp.Summary.Unchanged,
+	})
+	if err != nil {
 		s.internalError(w, "save calendar import", err)
 		return
 	}
+	resp.Saved = int64(saved.Created + saved.Updated)
+	resp.BatchID = saved.BatchID
 	resp.Committed = true
 	s.log.Info("calendar import committed", "admin_id", adminFrom(r.Context()).ID, "saved", resp.Saved, "file", header.Filename)
 	writeJSON(w, http.StatusOK, resp)
@@ -211,15 +290,50 @@ type entryInput struct {
 	Label     string `json:"label"`
 }
 
-// PUT /api/admin/calendar/entries [{date, applies_to, day_type, counts?, label}]:
-// saves a list of single-date entries in one transaction, e.g. the missing
-// dates an admin picked from an attendance import preview. Any invalid entry
-// means nothing is saved (422 with per-entry errors).
+// entriesRequest is the object form of PUT /api/admin/calendar/entries. A
+// plain array of entries is also accepted and saved as manual entries.
+type entriesRequest struct {
+	Entries  []entryInput `json:"entries"`
+	FileName string       `json:"file_name"` // the uploaded sheet the dates came from
+	Kind     string       `json:"kind"`      // "attendance" or "students": the import tab
+}
+
+// PUT /api/admin/calendar/entries {entries, file_name?, kind?} (or a plain
+// array of entries): saves single-date entries in one transaction, e.g. the
+// missing dates an admin picked from an import preview. With file_name and
+// kind they are recorded as coming from that upload. Any invalid entry means
+// nothing is saved (422 with per-entry errors).
 func (s *Server) handleSaveCalendarEntries(w http.ResponseWriter, r *http.Request) {
-	var in []entryInput
-	if !decodeJSON(w, r, &in) {
+	var raw json.RawMessage
+	if !decodeLarge(w, r, &raw) {
 		return
 	}
+	var req entriesRequest
+	trimmed := bytes.TrimSpace(raw)
+	var err error
+	if len(trimmed) > 0 && trimmed[0] == '[' {
+		err = json.Unmarshal(trimmed, &req.Entries)
+	} else {
+		err = json.Unmarshal(trimmed, &req)
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "Send a list of entries.", nil)
+		return
+	}
+	src := entrySource{source: "manual"}
+	fileName := strings.TrimSpace(req.FileName)
+	if len(fileName) > 255 {
+		fileName = fileName[:255]
+	}
+	switch {
+	case req.Kind == "" && fileName == "":
+	case (req.Kind == "attendance" || req.Kind == "students") && fileName != "":
+		src = entrySource{source: req.Kind + "_import", batchKind: req.Kind, fileName: fileName}
+	default:
+		writeError(w, http.StatusBadRequest, "bad_request", "kind must be attendance or students, with the file name.", nil)
+		return
+	}
+	in := req.Entries
 	if len(in) == 0 || len(in) > 400 {
 		writeError(w, http.StatusBadRequest, "bad_request", "Send between 1 and 400 entries.", nil)
 		return
@@ -265,12 +379,15 @@ func (s *Server) handleSaveCalendarEntries(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusUnprocessableEntity, "validation_failed", fmt.Sprintf("%d entr(ies) are invalid; nothing was saved.", len(errs)), errs)
 		return
 	}
-	saved, err := s.saveCalendarEntries(r.Context(), entries)
+	saved, err := s.saveCalendarEntries(r.Context(), entries, src)
 	if err != nil {
 		s.internalError(w, "save calendar entries", err)
 		return
 	}
-	resp := map[string]any{"saved": saved}
+	resp := map[string]any{"saved": saved.Created + saved.Updated, "unchanged": len(entries) - saved.Created - saved.Updated}
+	if saved.BatchID > 0 {
+		resp["batch_id"] = saved.BatchID
+	}
 	marked, err := s.loadMarkedDates(r.Context(), from, to)
 	if err != nil {
 		s.internalError(w, "marked dates", err)
@@ -285,7 +402,7 @@ func (s *Server) handleSaveCalendarEntries(w http.ResponseWriter, r *http.Reques
 	if n > 0 {
 		resp["warning"] = fmt.Sprintf("%d of these date(s) already have attendance marks. The marks are kept; whether they count follows the new entries.", n)
 	}
-	s.log.Info("calendar entries saved", "admin_id", adminFrom(r.Context()).ID, "saved", saved)
+	s.log.Info("calendar entries saved", "admin_id", adminFrom(r.Context()).ID, "saved", saved.Created+saved.Updated, "batch_id", saved.BatchID)
 	writeJSON(w, http.StatusOK, resp)
 }
 

@@ -2,11 +2,14 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { studentHref } from "@/components/admin-dashboard";
-import { PageHeading } from "@/components/admin-shell";
+import { PageHeading, useCurrentAdmin } from "@/components/admin-shell";
+import { DeletionLogCard } from "@/components/calendar-actions";
 import { categoryInfo, fmtDate, fmtMonth, periodStateLabel } from "@/components/attendance-ui";
+import { CalendarEntriesCard, ImportHistoryCard } from "@/components/calendar-entries";
 import { AdminDayDetails, DayPopover } from "@/components/day-details";
 import { inputCls } from "@/components/auth";
 import { Button } from "@/components/ui/button";
@@ -30,7 +33,62 @@ function shiftMonth(ym: string, by: number) {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+type Tab = "month" | "entries" | "history" | "log";
+
+/**
+ * The admin Calendar: the month view, every saved entry with its source, and
+ * the uploads that wrote entries. The tab and filters live in the URL.
+ */
 export function CalendarPage() {
+  const params = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const isOwner = useCurrentAdmin().role === "owner";
+  const asked = params.get("tab");
+  const tab: Tab = asked === "entries" || asked === "history" || asked === "log" ? asked : "month";
+  const go = (t: Tab, extra: Record<string, string> = {}) =>
+    router.replace(t === "month" ? pathname : `${pathname}?${new URLSearchParams({ tab: t, ...extra })}`, { scroll: false });
+  const tabs: { id: Tab; label: string }[] = [
+    { id: "month", label: "Month view" },
+    { id: "entries", label: "Manage entries" },
+    { id: "history", label: "Import history" },
+    { id: "log", label: "Deletion log" },
+  ];
+  return (
+    <>
+      <PageHeading
+        title="Calendar"
+        help="calendar"
+        description={
+          <>
+            Mon–Sat are working days and Sundays are off unless you add an entry. A degree&rsquo;s own entry wins over an &ldquo;All&rdquo; entry.
+            Days outside every term never count.
+          </>
+        }
+      />
+      <div className="inline-flex max-w-full self-start overflow-x-auto rounded-md ring-1 ring-input" role="tablist" aria-label="Calendar section">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => go(t.id)}
+            className={`border-l border-input px-4 py-2 text-sm font-medium first:border-l-0 ${tab === t.id ? "bg-primary text-primary-foreground" : "bg-white hover:bg-muted"}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {tab === "month" && <MonthView />}
+      {tab === "entries" && <CalendarEntriesCard batch={params.get("batch") ?? ""} onBatch={(b) => go("entries", b ? { batch: b } : {})} />}
+      {tab === "history" && <ImportHistoryCard onView={(id) => go("entries", { batch: String(id) })} />}
+      {tab === "log" && <DeletionLogCard isOwner={isOwner} />}
+    </>
+  );
+}
+
+function MonthView() {
   const [ym, setYm] = useState("");
   const [view, setView] = useState("ALL");
   const month = useQuery({ queryKey: ["calendar", ym, view], queryFn: () => calendarApi.month(ym, view), placeholderData: (p) => p });
@@ -69,17 +127,6 @@ export function CalendarPage() {
 
   return (
     <>
-      <PageHeading
-        title="Calendar"
-        help="calendar"
-        description={
-          <>
-            Mon–Sat are working days and Sundays are off unless you add an entry. A degree&rsquo;s own entry wins over an &ldquo;All&rdquo; entry.
-            Days outside every term never count.
-          </>
-        }
-      />
-
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
@@ -303,7 +350,12 @@ function EntryEditor({
   const save = useMutation({
     mutationFn: () =>
       calendarApi.set({ from, to: to || from, applies_to: appliesTo, day_type: dayType, counts: dayType === "event" ? counts : undefined, label, include_sundays: includeSundays }),
-    onSuccess: (r) => done(`Saved ${r.saved} date(s).${r.warning ? " " + r.warning : ""}`),
+    onSuccess: (r) =>
+      done(
+        (r.saved === 0 && r.unchanged
+          ? `No changes: ${r.unchanged} date(s) already had this entry.`
+          : `Saved ${r.saved} date(s).${r.unchanged ? ` ${r.unchanged} already the same.` : ""}`) + (r.warning ? " " + r.warning : ""),
+      ),
     onError,
   });
   const remove = useMutation({

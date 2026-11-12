@@ -362,8 +362,9 @@ func (s *Server) handleSetCalendar(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "invalid_label", "The label can be up to 100 characters.", nil)
 		return
 	}
-	n, err := s.store.UpsertCalendarRange(r.Context(), db.UpsertCalendarRangeParams{
+	rows, err := s.store.UpsertCalendarRange(r.Context(), db.UpsertCalendarRangeParams{
 		AppliesTo: appliesTo, DayType: string(kind), Counts: counts, Label: label,
+		Source: "manual", AdminID: optInt8(adminFrom(r.Context()).ID),
 		FromDate: pgDate(from), ToDate: pgDate(to), SkipSundays: !in.IncludeSundays,
 	})
 	if err != nil {
@@ -375,7 +376,14 @@ func (s *Server) handleSetCalendar(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "count marked dates", err)
 		return
 	}
-	resp := map[string]any{"saved": n}
+	n := len(rows)
+	total := 0
+	for d := from; !d.After(to); d = d.AddDate(0, 0, 1) {
+		if in.IncludeSundays || d.Weekday() != time.Sunday {
+			total++
+		}
+	}
+	resp := map[string]any{"saved": n, "unchanged": total - n}
 	if marked > 0 {
 		verb := "now count"
 		if !counts {

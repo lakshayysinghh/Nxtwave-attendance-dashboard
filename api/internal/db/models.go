@@ -30,12 +30,47 @@ type Attendance struct {
 }
 
 type CalendarDay struct {
-	ID        int64       `json:"id"`
-	Date      pgtype.Date `json:"date"`
-	AppliesTo string      `json:"applies_to"`
-	DayType   string      `json:"day_type"`
-	Counts    bool        `json:"counts"`
-	Label     string      `json:"label"`
+	ID        int64              `json:"id"`
+	Date      pgtype.Date        `json:"date"`
+	AppliesTo string             `json:"applies_to"`
+	DayType   string             `json:"day_type"`
+	Counts    bool               `json:"counts"`
+	Label     string             `json:"label"`
+	Source    string             `json:"source"`
+	BatchID   pgtype.Int8        `json:"batch_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	CreatedBy pgtype.Int8        `json:"created_by"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	UpdatedBy pgtype.Int8        `json:"updated_by"`
+}
+
+type CalendarDeletedEntry struct {
+	ID         int64              `json:"id"`
+	DeletionID int64              `json:"deletion_id"`
+	Date       pgtype.Date        `json:"date"`
+	AppliesTo  string             `json:"applies_to"`
+	DayType    string             `json:"day_type"`
+	Counts     bool               `json:"counts"`
+	Label      string             `json:"label"`
+	Source     string             `json:"source"`
+	BatchID    pgtype.Int8        `json:"batch_id"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	CreatedBy  pgtype.Int8        `json:"created_by"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+	UpdatedBy  pgtype.Int8        `json:"updated_by"`
+	Restored   bool               `json:"restored"`
+}
+
+type CalendarDeletion struct {
+	ID             int64              `json:"id"`
+	Kind           string             `json:"kind"`
+	Criteria       []byte             `json:"criteria"`
+	EntryCount     int32              `json:"entry_count"`
+	DeletedBy      pgtype.Int8        `json:"deleted_by"`
+	DeletedByEmail string             `json:"deleted_by_email"`
+	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
+	RestoredAt     pgtype.Timestamptz `json:"restored_at"`
+	RestoredBy     pgtype.Int8        `json:"restored_by"`
 }
 
 type Degree struct {

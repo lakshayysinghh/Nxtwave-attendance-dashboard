@@ -410,6 +410,54 @@ export const guides = {
         text: "Below the calendar, every internship in the month with its student, dates and status. Tick **Only students in internship today** to see who is on internship now. Internships are assigned on the student's page.",
       },
       {
+        title: "Manage entries tab",
+        points: [
+          "Lists **every saved entry** as date ranges: title, type, Applies to, source, the uploaded file and upload number, and when and by whom it was created and last updated.",
+          "**Source** is Manual entry, Calendar import, Attendance import or Students import (dates with no column saved from that sheet).",
+          "**Legacy / Source unavailable** means the entry was saved before sources were recorded. Its file, times and admin are unknown and are not guessed.",
+          "Filter by degree, type, source, upload, entry dates, or the date it was created or last updated. Search finds titles, file names and admins.",
+          "Click an entry's **title** for all its details. **Edit** corrects the type or label in place; the entry then counts as a manual entry, so an imported-entry reset no longer removes it.",
+        ],
+      },
+      {
+        title: "Delete entries",
+        steps: [
+          "Tick one or more entries (the header box ticks every entry shown), or open one and click **Delete…**.",
+          "Click **Delete selected (n)**. The preview lists the exact entries, their dates, degrees and types, and the **Effect on attendance**: which dates start or stop counting and how many saved marks that touches.",
+          "Tick **I have checked these entries** and click **Delete**.",
+          "Deleted entries go to the **Deletion log**, where **Restore** puts them back.",
+        ],
+      },
+      {
+        title: "Reset imported entries",
+        roles: OWNER,
+        steps: [
+          "In **Manage entries**, click **Reset imported entries…** (or **Remove these entries…** on an upload in Import history).",
+          "Leave everything empty to remove **all imported entries**, or pick uploads, degrees, types and a date range.",
+          "Click **Preview what will be removed** and check the exact entries and the effect on attendance.",
+          "Type `RESET <number>` and confirm.",
+        ],
+      },
+      {
+        title: "Deletion safeguards",
+        points: [
+          "A reset only removes entries from sheet imports. **Manual and legacy entries are never removed by a reset**; delete them by selecting them.",
+          { text: "Resetting imported entries, and restoring a reset, is for the Owner.", roles: ADMIN_ONLY },
+          "Students, attendance marks, internships and registration-pending periods are never deleted or changed. Percentages update straight away.",
+          "If the calendar changes between the preview and the confirmation, nothing is deleted and you are asked to check again.",
+          "**Deletion log** shows who deleted what and when. **Restore** puts entries back with their original details, except where a newer entry now uses the same date and degree.",
+        ],
+      },
+      {
+        title: "Import history tab",
+        points: [
+          "One row per saved upload that wrote calendar entries: file, upload time and admin, entries created and updated, date range, degrees and status.",
+          "**View entries** opens Manage entries filtered to that upload.",
+          "**None now: changed or removed later** means a later save replaced or removed every entry from that upload.",
+          "Uploads from before this history was added are not listed.",
+        ],
+      },
+      {
         title: "Good to know",
         points: ["Calendar changes never delete marks; they only change whether marks count.", "Save warns when some dates already have marks.", "**Remove … entries** removes only the entries for the chosen **Applies to**."],
       },
@@ -418,7 +466,8 @@ export const guides = {
         table: {
           head: ["Problem", "What to do"],
           rows: [
-            ["Class days show as holidays", "Select them, choose the same **Applies to** as the entry and click **Remove … entries**."],
+            ["Class days show as holidays", "In **Manage entries**, filter by type Holiday (and by upload if known), tick the wrong ones and click **Delete selected**. Their saved marks count again at once."],
+            ["Old wrong holidays show as Legacy", "They were saved before sources were recorded, so a reset does not match them. Tick them in **Manage entries** and delete them."],
             ["A Sunday did not save", "Tick **Include Sundays in the range**."],
             ["One degree changed when both should", "Use **All degrees**, or remove the degree's own entry, which wins over All."],
           ],

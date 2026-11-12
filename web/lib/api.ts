@@ -454,7 +454,7 @@ export const calendarApi = {
       `/api/admin/calendar?ym=${ym}&view=${encodeURIComponent(view)}`,
     ),
   set: (e: { from: string; to: string; applies_to: string; day_type: DayType; counts?: boolean; label: string; include_sundays: boolean }) =>
-    request<{ saved: number; warning?: string }>("/api/admin/calendar", { method: "PUT", body: JSON.stringify(e) }),
+    request<{ saved: number; unchanged: number; warning?: string }>("/api/admin/calendar", { method: "PUT", body: JSON.stringify(e) }),
   remove: (from: string, to: string, applies_to: string) =>
     request<{ deleted: number }>(
       `/api/admin/calendar?${new URLSearchParams({ from, to, applies_to })}`,
@@ -483,10 +483,117 @@ export type CalendarImportResult = {
   rows: CalendarImportRow[];
   committed: boolean;
   saved: number;
+  batch_id?: number;
 };
 
 export const importCalendar = (file: File, opts: UploadOpts = {}) => uploadSheet<CalendarImportResult>("calendar", file, opts);
 
-/** Save single-date calendar entries in one go (e.g. picked missing dates). */
-export const saveCalendarEntries = (entries: { date: string; applies_to: string; day_type: DayType; label: string }[]) =>
-  request<{ saved: number; warning?: string }>("/api/admin/calendar/entries", { method: "PUT", body: JSON.stringify(entries) });
+/**
+ * Save single-date calendar entries in one go (e.g. picked missing dates).
+ * upload records them as coming from that sheet in the import history.
+ */
+export const saveCalendarEntries = (
+  entries: { date: string; applies_to: string; day_type: DayType; label: string }[],
+  upload?: { file_name: string; kind: "attendance" | "students" },
+) =>
+  request<{ saved: number; unchanged: number; warning?: string; batch_id?: number }>("/api/admin/calendar/entries", {
+    method: "PUT",
+    body: JSON.stringify({ entries, ...upload }),
+  });
+
+export type EntrySource = "legacy" | "manual" | "calendar_import" | "attendance_import" | "students_import";
+export type AdminRef = { name: string; email: string } | null;
+
+/** Consecutive calendar days saved together (Sundays left out of a range are skipped over). */
+export type CalendarEntryRange = {
+  start: string;
+  end: string;
+  days: number;
+  applies_to: string;
+  day_type: DayType;
+  counts: boolean;
+  label: string;
+  source: EntrySource;
+  batch: { id: number; file_name: string; kind: string } | null;
+  created_at: string | null;
+  updated_at: string | null;
+  created_by: AdminRef;
+  updated_by: AdminRef;
+  /** The exact entry dates in the range. */
+  dates: string[];
+  /** Fingerprint of these rows; an edit or deletion is refused if they changed since. */
+  token: string;
+};
+
+/** Which entries to delete: exactly the selected ones, or imported entries matching filters (Owner only). */
+export type DeletionSelector =
+  | { mode: "selected"; entries: { date: string; applies_to: string }[] }
+  | { mode: "imported"; batch_ids?: number[]; degrees?: string[]; types?: DayType[]; from?: string; to?: string };
+
+export type ImpactDay = { kind: DayType | "sunday"; label: string; counts: boolean; counted: boolean };
+export type CalendarImpact = {
+  changes: { date: string; degree: string; before: ImpactDay; after: ImpactDay; counting_changes: boolean; marks: number }[];
+  start_counting: number;
+  stop_counting: number;
+  marks_start: number;
+  marks_stop: number;
+};
+
+export type DeletionPreview = {
+  entries: CalendarEntryRange[];
+  count: number;
+  dates: string[];
+  degrees: string[];
+  types: Record<string, number>;
+  /** Manual and legacy entries the same filters match; a reset keeps them. */
+  kept: { manual: number; legacy: number };
+  /** Selected entries that no longer exist. */
+  missing: number;
+  impact: CalendarImpact;
+  token: string;
+};
+
+export type CalendarDeletion = {
+  id: number;
+  kind: "selected" | "imported";
+  criteria: { dates?: string[]; degrees?: string[]; types?: Record<string, number>; kept?: { manual: number; legacy: number } };
+  entry_count: number;
+  deleted_at: string;
+  deleted_by: AdminRef;
+  restored_at: string | null;
+  restored_by: AdminRef;
+  restored_entries: number;
+};
+
+export type DeletedEntry = { date: string; applies_to: string; day_type: DayType; counts: boolean; label: string; source: EntrySource; file_name: string; restored: boolean };
+
+/** A saved upload that wrote calendar entries. */
+export type ImportBatch = {
+  id: number;
+  kind: "calendar" | "attendance" | "students";
+  file_name: string;
+  status: string;
+  uploaded_at: string;
+  uploaded_by: AdminRef;
+  summary: { created: number; updated: number; unchanged: number; skipped: number; from?: string; to?: string; degrees: string[] };
+  /** Entries that still point at this upload (a later save moves an entry to its own source). */
+  current_entries: number;
+};
+
+export const calendarEntriesApi = {
+  list: () => request<{ entries: CalendarEntryRange[] }>("/api/admin/calendar/entries"),
+  history: () => request<{ batches: ImportBatch[] }>("/api/admin/imports/history"),
+  previewDelete: (sel: DeletionSelector) =>
+    request<DeletionPreview>("/api/admin/calendar/deletions/preview", { method: "POST", body: JSON.stringify(sel) }),
+  /** confirm: true for selected entries; "RESET <count>" for a reset of imported entries. */
+  delete: (sel: DeletionSelector, token: string, confirm: true | string) =>
+    request<{ deletion_id: number; deleted: number; impact: CalendarImpact }>("/api/admin/calendar/deletions", {
+      method: "POST",
+      body: JSON.stringify({ ...sel, token, ...(confirm === true ? { confirmed: true } : { confirm }) }),
+    }),
+  edit: (e: { entries: { date: string; applies_to: string }[]; token: string; day_type: DayType; counts?: boolean; label: string }) =>
+    request<{ updated: number; impact: CalendarImpact }>("/api/admin/calendar/entries", { method: "PATCH", body: JSON.stringify(e) }),
+  deletions: () => request<{ deletions: CalendarDeletion[] }>("/api/admin/calendar/deletions"),
+  deletion: (id: number) => request<{ entries: DeletedEntry[] }>(`/api/admin/calendar/deletions/${id}`),
+  restore: (id: number) => request<{ restored: number; skipped: number }>(`/api/admin/calendar/deletions/${id}/restore`, { method: "POST" }),
+};
