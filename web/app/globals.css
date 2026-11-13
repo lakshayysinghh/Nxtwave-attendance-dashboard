@@ -83,38 +83,35 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
+/* Night mode: deep navy surfaces, soft text and a light blue accent. */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  color-scheme: dark;
+  --background: #0a0f1c;
+  --foreground: #e6ebf3;
+  --card: #10172a;
+  --card-foreground: #e6ebf3;
+  --popover: #141c31;
+  --popover-foreground: #e6ebf3;
+  --primary: #8ab4f8;
+  --primary-foreground: #0a1222;
+  --secondary: #1a2339;
+  --secondary-foreground: #dbe5f5;
+  --muted: #161f33;
+  --muted-foreground: #8d99ad;
+  --accent: #1b2742;
+  --accent-foreground: #dbe5f5;
+  --destructive: #f87171;
+  --border: rgb(255 255 255 / 0.08);
+  --input: rgb(255 255 255 / 0.14);
+  --ring: #8ab4f8;
+  --sidebar: #0d1424;
+  --sidebar-foreground: #e6ebf3;
+  --sidebar-primary: #8ab4f8;
+  --sidebar-primary-foreground: #0a1222;
+  --sidebar-accent: #1b2742;
+  --sidebar-accent-foreground: #e6ebf3;
+  --sidebar-border: rgb(255 255 255 / 0.08);
+  --sidebar-ring: #8ab4f8;
 }
 
 @layer base {
@@ -127,4 +124,81 @@
   html {
     @apply font-sans;
   }
+}
+/*
+ * Night mode for the fixed light colours used across the components (white
+ * surfaces, pale status tints, slate text). Each light colour is swapped for
+ * its night counterpart here, in one place. :where() keeps the specificity of
+ * a plain utility, and these rules come after Tailwind's, so they replace the
+ * light colour while hover:, focus: and dark: variants still win.
+ */
+@layer utilities {
+  /* Surfaces */
+  :where(.dark) .bg-white { background-color: var(--card); }
+  :where(.dark) .bg-slate-50 { background-color: #131c30; }
+  :where(.dark) .bg-slate-50\/60 { background-color: rgb(19 28 48 / 0.6); }
+  :where(.dark) .bg-slate-100 { background-color: #1a2339; }
+  :where(.dark) .bg-slate-900\/30,
+  :where(.dark) .bg-slate-900\/40 { background-color: rgb(0 0 0 / 0.6); }
+
+  /* Text */
+  :where(.dark) .text-slate-900 { color: #edf1f7; }
+  :where(.dark) .text-slate-800 { color: #dbe2ec; }
+  :where(.dark) .text-slate-700 { color: #c5cedb; }
+  :where(.dark) .text-slate-600 { color: #a5b0c1; }
+  :where(.dark) .text-slate-500 { color: #8d99ad; }
+  :where(.dark) .text-slate-400 { color: #6f7b8f; }
+
+  /* Hairlines */
+  :where(.dark) .ring-slate-200,
+  :where(.dark) .ring-slate-300 { --tw-ring-color: rgb(255 255 255 / 0.12); }
+  :where(.dark) .ring-slate-900\/5 { --tw-ring-color: rgb(255 255 255 / 0.08); }
+
+  /* Status tints: a soft glow of the colour, light text, a faint edge. */
+  :where(.dark) .bg-green-50 { background-color: rgb(34 197 94 / 0.12); }
+  :where(.dark) .text-green-700 { color: #4ade80; }
+  :where(.dark) .text-green-800 { color: #86efac; }
+  :where(.dark) .text-green-900 { color: #bbf7d0; }
+  :where(.dark) .border-green-200 { border-color: rgb(34 197 94 / 0.3); }
+  :where(.dark) .ring-green-200 { --tw-ring-color: rgb(34 197 94 / 0.3); }
+
+  :where(.dark) .bg-red-50 { background-color: rgb(239 68 68 / 0.12); }
+  :where(.dark) .bg-red-50\/40 { background-color: rgb(239 68 68 / 0.07); }
+  :where(.dark) .text-red-700 { color: #f87171; }
+  :where(.dark) .text-red-800 { color: #fca5a5; }
+  :where(.dark) .text-red-900 { color: #fecaca; }
+  :where(.dark) .border-red-200 { border-color: rgb(239 68 68 / 0.32); }
+  :where(.dark) .ring-red-200 { --tw-ring-color: rgb(239 68 68 / 0.32); }
+
+  :where(.dark) .bg-amber-50 { background-color: rgb(245 158 11 / 0.12); }
+  :where(.dark) .bg-amber-50\/50 { background-color: rgb(245 158 11 / 0.07); }
+  :where(.dark) .text-amber-700 { color: #fbbf24; }
+  :where(.dark) .text-amber-800 { color: #fcd34d; }
+  :where(.dark) .text-amber-900 { color: #fde68a; }
+  :where(.dark) .border-amber-200 { border-color: rgb(245 158 11 / 0.3); }
+  :where(.dark) .ring-amber-200 { --tw-ring-color: rgb(245 158 11 / 0.3); }
+
+  :where(.dark) .bg-rose-50 { background-color: rgb(244 63 94 / 0.12); }
+  :where(.dark) .text-rose-800 { color: #fda4af; }
+  :where(.dark) .ring-rose-200 { --tw-ring-color: rgb(244 63 94 / 0.3); }
+
+  :where(.dark) .bg-blue-50 { background-color: rgb(59 130 246 / 0.13); }
+  :where(.dark) .text-blue-800 { color: #93c5fd; }
+  :where(.dark) .ring-blue-200 { --tw-ring-color: rgb(59 130 246 / 0.3); }
+
+  :where(.dark) .bg-violet-50 { background-color: rgb(139 92 246 / 0.14); }
+  :where(.dark) .bg-violet-50\/40 { background-color: rgb(139 92 246 / 0.08); }
+  :where(.dark) .text-violet-800 { color: #c4b5fd; }
+  :where(.dark) .border-violet-200 { border-color: rgb(139 92 246 / 0.32); }
+  :where(.dark) .ring-violet-200 { --tw-ring-color: rgb(139 92 246 / 0.32); }
+
+  :where(.dark) .bg-orange-50 { background-color: rgb(249 115 22 / 0.13); }
+  :where(.dark) .text-orange-800 { color: #fdba74; }
+  :where(.dark) .ring-orange-200 { --tw-ring-color: rgb(249 115 22 / 0.3); }
+}
+
+/* Smooth switch between day and night. */
+html.theme-transition,
+html.theme-transition * {
+  transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease !important;
 }

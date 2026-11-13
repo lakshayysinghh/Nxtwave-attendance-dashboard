@@ -92,7 +92,7 @@ export const guides = {
           head: ["Column", "Meaning"],
           rows: [
             ["**Days present / Days absent**", "Counted days marked Present or Absent"],
-            ["**Working days**", "Days that count for this student so far"],
+            ["**Working days**", "Present + absent: the class days with a mark. A class day nobody has marked yet is left out."],
             ["**Attendance**", "The %, coloured by band; **No marks yet** when nothing is marked"],
             ["**(dropped)**", "The student has left; their history is kept"],
             ["**Demo**", "Test data with a NIAT ID starting `N99`"],
@@ -107,7 +107,7 @@ export const guides = {
           "Click a **band card** to show only that band; click it again to undo.",
           "**Clear filters** resets everything. The line under the filters shows how many students are shown out of the total.",
           "The **Term** picker shows percentages for any term.",
-          "**Attendance dates**: choose From and To (or a quick range such as Last 7 days) to see every student's present, absent and % for just those days. Working days are then present + absent; class days with no mark are not counted.",
+          "**Attendance dates**: choose From and To (or a quick range such as Last 7 days) to see every student's present, absent and % for just those days. Working days are always present + absent; class days with no mark are not counted.",
           "Filters live in the page address, so **Back** from a student returns to the same list, and you can share the link with another admin.",
         ],
       },
@@ -581,7 +581,7 @@ export const guides = {
           head: ["Part", "Meaning"],
           rows: [
             ["**Attendance %**", "Present ÷ (Present + Absent) on days that count. Days not marked are left out."],
-            ["**Working days so far**", "Days that counted for you up to today"],
+            ["**Working days so far**", "Days marked present or absent so far (present + absent). Class days not marked yet are shown under it and left out."],
             ["**Placement cautions**", "Placements need **95%**, overall and every month. A red caution says how many class days in a row you need without an absence."],
             ["**Remark**", "A note from the admins for that month, e.g. medical leave approved"],
             ["**Internship and registration**", "Internship days count as Present; Term 5 registration pending days count as Absent"],

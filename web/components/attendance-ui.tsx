@@ -2,6 +2,7 @@
 import Link from "next/link";
 
 import { Logo } from "@/components/logo";
+import { ThemeToggle } from "@/components/theme";
 
 import type { Band, Mark, Period, PeriodKind, Term } from "@/lib/api";
 
@@ -16,13 +17,14 @@ export function SiteHeader({ active }: { active?: "student" | "admin" }) {
     </Link>
   );
   return (
-    <header className="bg-primary text-white">
+    <header className="bg-primary text-white dark:border-b dark:border-border dark:bg-[#0d1424]">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
         <Link href="/" className="flex items-center gap-2">
           <Logo onDark />
           <span className="font-semibold tracking-tight">NxtWave Attendance</span>
         </Link>
-        <nav className="flex gap-1">
+        <nav className="flex items-center gap-1">
+          <ThemeToggle />
           {link("/student", "Student", active === "student")}
           {link("/admin", "Admin", active === "admin")}
         </nav>

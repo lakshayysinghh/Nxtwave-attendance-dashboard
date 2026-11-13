@@ -363,7 +363,7 @@ export function StudentsPage() {
             {demoCount > 0 && <> · includes {demoCount} demo students (N99…)</>}
           </p>
           {isOwner && selected.size > 0 && <BulkDeleteBar ids={[...selected]} onClear={() => setSelected(new Set())} />}
-          <StudentRows rows={rows} ranged={ranged} selection={isOwner ? { selected, onChange: setSelected } : undefined} />
+          <StudentRows rows={rows} selection={isOwner ? { selected, onChange: setSelected } : undefined} />
           {list.isSuccess && rows.length === 0 && <p className="py-2 text-sm text-muted-foreground">No students match these filters.</p>}
         </CardContent>
       </Card>
@@ -466,9 +466,9 @@ function BulkDeleteBar({ ids, onClear }: { ids: string[]; onClear: () => void })
 }
 
 /** The student table (desktop) and stacked cards (phones). Names and NIAT IDs open the student. */
-/** ranged: a date filter is on, so working days are Present + Absent (the marked class days). */
-function StudentRows({ rows, compact, selection, ranged }: { rows: AdminStudent[]; compact?: boolean; selection?: Selection; ranged?: boolean }) {
-  const working = (s: AdminStudent) => (ranged ? s.summary.marked_days : s.summary.counted_days);
+/** Working days are Present + Absent: the class days with a mark (unmarked class days are left out). */
+function StudentRows({ rows, compact, selection }: { rows: AdminStudent[]; compact?: boolean; selection?: Selection }) {
+  const working = (s: AdminStudent) => s.summary.marked_days;
   const term = useTermParam();
   const link = "hover:text-primary hover:underline";
   const allShown = rows.length > 0 && !!selection && rows.every((s) => selection.selected.has(s.niat_id));

@@ -25,6 +25,7 @@ import { ChangePasswordCard, useAdminSession } from "@/components/auth";
 import { PageHelp } from "@/components/help/page-help";
 import type { GuideId } from "@/components/help/guides";
 import { Logo } from "@/components/logo";
+import { ThemeToggle } from "@/components/theme";
 import { Button } from "@/components/ui/button";
 import { api, type Me } from "@/lib/api";
 
@@ -110,7 +111,7 @@ function TopBar({ me, onMenu, onChangePassword }: { me: Me; onMenu: () => void; 
   const router = useRouter();
   const qc = useQueryClient();
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between gap-3 bg-primary px-3 text-white sm:px-4">
+    <header className="flex h-14 shrink-0 items-center justify-between gap-3 bg-primary px-3 text-white sm:px-4 dark:border-b dark:border-border dark:bg-[#0d1424]">
       <div className="flex items-center gap-2">
         <button type="button" onClick={onMenu} className="rounded-md p-1.5 hover:bg-white/10 lg:hidden" aria-label="Open menu">
           <Menu className="size-5" />
@@ -125,6 +126,7 @@ function TopBar({ me, onMenu, onChangePassword }: { me: Me; onMenu: () => void; 
           {me.email}
         </span>
         <span className="rounded bg-white/15 px-1.5 py-0.5 text-xs font-medium">{me.role === "owner" ? "Owner" : "Admin"}</span>
+        <ThemeToggle />
         <button type="button" onClick={onChangePassword} className="flex items-center gap-1 rounded-md px-2 py-1.5 hover:bg-white/10" title="Change password">
           <KeyRound className="size-4" />
           <span className="hidden sm:inline">Change password</span>

@@ -177,7 +177,11 @@ export function StudentProfile({
       {periodsCard ?? <PeriodsCard periods={p.periods} />}
 
       <div className="grid grid-cols-3 gap-3">
-        <Tile label="Working days so far" value={p.summary.counted_days} />
+        <Tile
+          label="Working days so far"
+          value={p.summary.marked_days}
+          note={p.summary.not_marked_days > 0 ? `present + absent · ${p.summary.not_marked_days} class day${p.summary.not_marked_days === 1 ? "" : "s"} not marked yet` : "present + absent"}
+        />
         <Tile label="Days present" value={p.summary.days_attended} tone="text-green-700" />
         <Tile label="Days absent" value={p.summary.days_absent} tone="text-red-700" />
       </div>
@@ -209,7 +213,7 @@ export function StudentProfile({
                     className={`cursor-pointer border-t border-border ${m.month === ym ? "bg-accent font-medium" : "hover:bg-muted"}`}
                   >
                     <td className="py-2">{fmtMonth(m.month)}</td>
-                    <td className="py-2 text-right tabular-nums">{m.counted_days}</td>
+                    <td className="py-2 text-right tabular-nums">{m.marked_days}</td>
                     <td className="py-2 text-right tabular-nums">{m.days_attended}</td>
                     <td className="py-2 text-right tabular-nums">{m.days_absent}</td>
                     <td className="py-2 text-right">
@@ -504,12 +508,13 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Tile({ label, value, tone = "text-foreground" }: { label: string; value: number; tone?: string }) {
+function Tile({ label, value, tone = "text-foreground", note }: { label: string; value: number; tone?: string; note?: string }) {
   return (
     <Card size="sm">
       <CardContent>
         <div className="text-xs text-muted-foreground">{label}</div>
         <div className={`mt-1 text-2xl font-semibold tabular-nums ${tone}`}>{value}</div>
+        {note && <div className="mt-0.5 text-xs text-muted-foreground">{note}</div>}
       </CardContent>
     </Card>
   );
