@@ -174,7 +174,7 @@ export const guides = {
         title: "Placement cautions",
         points: [
           "Placements need **at least 95%**, for the term and in every month.",
-          "Below 95%, a red **Caution** says how many class days in a row without an absence are needed to reach 95%.",
+          "Below 95%, a red **Caution** says that placement eligibility will be affected if attendance stays below 95%.",
           "Each month shows **OK**, **Below 95%: caution** or **No marks**.",
           "Click **Add remark** (or **Edit remark**) next to a month, type up to 500 characters and save. Saving it empty removes it. **The student sees remarks.**",
         ],
@@ -582,7 +582,7 @@ export const guides = {
           rows: [
             ["**Attendance %**", "Present ÷ (Present + Absent) on days that count. Days not marked are left out."],
             ["**Working days so far**", "Days marked present or absent so far (present + absent). Class days not marked yet are shown under it and left out."],
-            ["**Placement cautions**", "Placements need **95%**, overall and every month. A red caution says how many class days in a row you need without an absence."],
+            ["**Placement cautions**", "Placements need **95%**, overall and every month. Below that, a red caution says placement eligibility will be affected."],
             ["**Remark**", "A note from the admins for that month, e.g. medical leave approved"],
             ["**Internship and registration**", "Internship days count as Present; Term 5 registration pending days count as Absent"],
             ["**Monthly summary**", "Days, present, absent and % per month. Select a month to see its calendar."],

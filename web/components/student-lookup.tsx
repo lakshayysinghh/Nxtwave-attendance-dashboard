@@ -391,12 +391,11 @@ function PlacementCautions({ p, onSaveRemark }: { p: Profile; onSaveRemark?: (ym
           <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">No attendance marked yet.</p>
         ) : pl.below ? (
           <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
-            <b>Caution:</b> overall attendance is {pctText(pl.pct)}, below {pl.threshold}%. Placement eligibility is at risk. Attend the next{" "}
-            <b>{pl.days_needed}</b> class day{pl.days_needed === 1 ? "" : "s"} without an absence to reach {pl.threshold}%.
+            <b>Caution:</b> attendance is below {pl.threshold}%. Placement eligibility will be affected if attendance stays below {pl.threshold}%.
           </p>
         ) : (
           <p className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-900">
-            Overall attendance is {pctText(pl.pct)}: meets the {pl.threshold}% placement requirement.
+            Attendance meets the {pl.threshold}% placement requirement.
           </p>
         )}
         <ul className="divide-y divide-border rounded-md border border-border">
