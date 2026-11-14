@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -19,7 +20,7 @@ func (s *Server) handlePublicProfile(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	resp, err := s.profile(r.Context(), st, toStudentJSON(st), 0, false)
+	resp, err := s.profile(r.Context(), st, toPublicStudentJSON(st), 0, false)
 	if err != nil {
 		s.internalError(w, "profile", err)
 		return
@@ -97,6 +98,17 @@ func (s *Server) handleAdminStudents(w http.ResponseWriter, r *http.Request) {
 	if ranged {
 		from, to = rf, rt
 	}
+	// ?present=today keeps only students marked Present today (IST).
+	if v := r.URL.Query().Get("present"); v != "" {
+		if v != "today" {
+			writeError(w, http.StatusBadRequest, "bad_request", `present must be "today".`, nil)
+			return
+		}
+		if rows, err = s.presentToday(r.Context(), rows, rl); err != nil {
+			s.internalError(w, "load today's marks", err)
+			return
+		}
+	}
 	ids := make([]string, len(rows))
 	for i, st := range rows {
 		ids[i] = st.NiatID
@@ -123,6 +135,27 @@ func (s *Server) handleAdminStudents(w http.ResponseWriter, r *http.Request) {
 		"range":    map[string]any{"from": stats.DateKey(from), "to": stats.DateKey(to), "custom": ranged},
 		"overview": stats.Summarise(sums, lowThreshold),
 	})
+}
+
+// presentToday keeps the students marked Present on today's date (IST) where
+// today counts for them; absent and unmarked students are dropped.
+func (s *Server) presentToday(ctx context.Context, rows []db.ListStudentsForAdminRow, rl rules) ([]db.ListStudentsForAdminRow, error) {
+	ids := make([]string, len(rows))
+	for i, st := range rows {
+		ids[i] = st.NiatID
+	}
+	marks, err := s.loadMarks(ctx, ids, rl.today, rl.today)
+	if err != nil {
+		return nil, err
+	}
+	kept := rows[:0:0]
+	for _, st := range rows {
+		stu := statsStudent(st.DegreeCode, st.Status, st.JoinedOn, st.DroppedOn)
+		if stats.PresentOn(rl.today, stu, rl.cal, rl.terms, marks[st.NiatID], rl.today) {
+			kept = append(kept, st)
+		}
+	}
+	return kept, nil
 }
 
 type sheetRow struct {

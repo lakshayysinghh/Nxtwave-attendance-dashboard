@@ -8,13 +8,13 @@ import {
   ClipboardCheck,
   GraduationCap,
   KeyRound,
+  ChartColumn,
   LayoutDashboard,
   LogOut,
   Menu,
   ShieldCheck,
   Upload,
   Users,
-  X,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -22,6 +22,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { createContext, useContext, useState } from "react";
 
 import { ChangePasswordCard, useAdminSession } from "@/components/auth";
+import { Sheet, backdropTone } from "@/components/ui/overlay";
 import { PageHelp } from "@/components/help/page-help";
 import type { GuideId } from "@/components/help/guides";
 import { Logo } from "@/components/logo";
@@ -47,6 +48,7 @@ const nav: NavItem[] = [
   { href: "/admin/imports", label: "Imports", icon: Upload },
   { href: "/admin/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/admin/terms", label: "Terms", icon: CalendarRange },
+  { href: "/admin/analytics", label: "Analytics", icon: ChartColumn, ownerOnly: true },
   { href: "/admin/admins", label: "Manage Admins", icon: ShieldCheck, ownerOnly: true },
   { href: "/admin/help", label: "Help & Guide", icon: CircleHelp },
 ];
@@ -69,13 +71,13 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
   return (
     <AdminContext.Provider value={admin}>
-      <div className="flex h-dvh flex-col">
+      <div className="flex h-dvh flex-col print:block print:h-auto">
         <TopBar me={admin} onMenu={() => setDrawer(true)} onChangePassword={() => setChanging(true)} />
-        <div className="flex min-h-0 flex-1">
-          <aside className="hidden w-60 shrink-0 overflow-y-auto border-r border-border bg-card lg:block">
+        <div className="flex min-h-0 flex-1 print:block">
+          <aside className="hidden w-60 shrink-0 overflow-y-auto border-r border-border bg-card lg:block print:hidden">
             <SideNav me={admin} />
           </aside>
-          <main className="min-w-0 flex-1 overflow-y-auto">
+          <main className="min-w-0 flex-1 overflow-y-auto print:overflow-visible">
             <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6">
               {admin.must_change_password ? <ChangePasswordCard forced /> : children}
             </div>
@@ -83,23 +85,14 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         </div>
       </div>
 
-      {drawer && (
-        <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Menu">
-          <button type="button" className="absolute inset-0 bg-slate-900/40" aria-label="Close menu" onClick={() => setDrawer(false)} />
-          <aside className="absolute inset-y-0 left-0 flex w-64 flex-col bg-card">
-            <div className="flex items-center justify-between border-b border-border px-4 py-3">
-              <span className="font-semibold text-primary">Menu</span>
-              <button type="button" onClick={() => setDrawer(false)} className="rounded-md p-1 hover:bg-muted" aria-label="Close menu">
-                <X className="size-5" />
-              </button>
-            </div>
-            <SideNav me={admin} onNavigate={() => setDrawer(false)} />
-          </aside>
+      <Sheet open={drawer} onOpenChange={setDrawer} title="Menu" closeLabel="Close menu" side="left" mobile="side" width="max-w-72 sm:max-w-72" className="lg:hidden">
+        <div className="-mx-5 -my-4">
+          <SideNav me={admin} onNavigate={() => setDrawer(false)} />
         </div>
-      )}
+      </Sheet>
 
       {changing && !admin.must_change_password && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 pt-16" role="dialog" aria-modal="true">
+        <div className={`fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 pt-16 ${backdropTone}`} role="dialog" aria-modal="true">
           <ChangePasswordCard onDone={() => setChanging(false)} />
         </div>
       )}
@@ -111,7 +104,7 @@ function TopBar({ me, onMenu, onChangePassword }: { me: Me; onMenu: () => void; 
   const router = useRouter();
   const qc = useQueryClient();
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between gap-3 bg-primary px-3 text-white sm:px-4 dark:border-b dark:border-border dark:bg-[#0d1424]">
+    <header className="flex h-14 shrink-0 items-center print:hidden justify-between gap-3 bg-primary px-3 text-white sm:px-4 dark:border-b dark:border-border dark:bg-[#0d1424]">
       <div className="flex items-center gap-2">
         <button type="button" onClick={onMenu} className="rounded-md p-1.5 hover:bg-white/10 lg:hidden" aria-label="Open menu">
           <Menu className="size-5" />

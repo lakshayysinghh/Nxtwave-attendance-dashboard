@@ -230,6 +230,12 @@ func Summarize(s Student, from, to time.Time, cal Calendar, terms []Term, marks 
 	return sum
 }
 
+// PresentOn reports whether the student is marked Present on d and d counts
+// for them. Absent, unmarked and non-counting days are false.
+func PresentOn(d time.Time, s Student, cal Calendar, terms []Term, marks Marks, today time.Time) bool {
+	return ResolveDay(d, s, cal, terms, today).Counted && marks[DateKey(d)] == Present
+}
+
 // MonthSummary is a Summary for one calendar month, clipped to the term.
 type MonthSummary struct {
 	Month string `json:"month"` // YYYY-MM
@@ -384,11 +390,15 @@ type PlacementMonth struct {
 // Placement is a student's standing against PlacementThreshold, for the
 // term and for each month so far.
 type Placement struct {
-	Threshold  int              `json:"threshold"`
-	Pct        *float64         `json:"pct"`
-	Below      bool             `json:"below"`
-	DaysNeeded int              `json:"days_needed"` // present days in a row needed to reach the threshold
-	Months     []PlacementMonth `json:"months"`
+	Threshold  int      `json:"threshold"`
+	Pct        *float64 `json:"pct"`
+	Below      bool     `json:"below"`
+	DaysNeeded int      `json:"days_needed"` // present days in a row needed to reach the threshold
+	// Gap is how many percentage points the term % is short of the threshold,
+	// rounded up to one decimal (72% → 23, 94.96% → 0.1); 0 when the threshold
+	// is met, nil when nothing is marked.
+	Gap    *float64         `json:"gap"`
+	Months []PlacementMonth `json:"months"`
 }
 
 // PlacementStatus compares the term summary and each month with
@@ -396,6 +406,15 @@ type Placement struct {
 // %, so 94.96% is still below 95%. Periods with nothing marked are never below.
 func PlacementStatus(term Summary, months []MonthSummary) Placement {
 	p := Placement{Threshold: PlacementThreshold, Pct: term.Pct, Below: belowPlacement(term), Months: []PlacementMonth{}}
+	if marked := term.Present + term.Absent; marked > 0 {
+		g := 0.0
+		if p.Below {
+			// Exact counts, rounded up: (T·marked − 100·P) ÷ marked, in tenths.
+			tenths := (10*(PlacementThreshold*marked-100*term.Present) + marked - 1) / marked // integer ceiling
+			g = float64(tenths) / 10
+		}
+		p.Gap = &g
+	}
 	if p.Below {
 		// Smallest n with (P+n)·100 >= T·(P+A+n).
 		gap := PlacementThreshold*(term.Present+term.Absent) - 100*term.Present

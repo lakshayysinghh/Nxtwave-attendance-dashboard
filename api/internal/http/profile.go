@@ -34,11 +34,12 @@ type studentJSON struct {
 	Name    string `json:"name"`
 	Degree  string `json:"degree"`
 	Section string `json:"section"`
-	Level   string `json:"level"`
-	HallNo  string `json:"hall_no"`
-	POC     string `json:"poc"`   // "" when not assigned
-	Coach   string `json:"coach"` // "" when not assigned
-	Status  string `json:"status"`
+	// Level is for admins only; the public profile leaves it out.
+	Level  string `json:"level,omitempty"`
+	HallNo string `json:"hall_no"`
+	POC    string `json:"poc"`   // "" when not assigned
+	Coach  string `json:"coach"` // "" when not assigned
+	Status string `json:"status"`
 }
 
 type profileResponse struct {
@@ -84,6 +85,13 @@ func toStudentJSON(s db.GetStudentRow) studentJSON {
 		Level: optText(s.Level), HallNo: optText(s.HallNo), POC: optText(s.PocName), Coach: optText(s.CoachName),
 		Status: s.Status,
 	}
+}
+
+// toPublicStudentJSON is what a student sees about themselves: no Level.
+func toPublicStudentJSON(s db.GetStudentRow) studentJSON {
+	out := toStudentJSON(s)
+	out.Level = ""
+	return out
 }
 
 func toTermJSON(r rules) *termJSON {

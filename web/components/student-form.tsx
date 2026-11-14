@@ -35,7 +35,7 @@ export function formFor(s: Profile["student"]): StudentForm {
     name: s.name,
     degree: s.degree,
     section: s.section,
-    level: s.level,
+    level: s.level ?? "",
     hall_no: s.hall_no,
     poc: s.poc,
     coach: s.coach,

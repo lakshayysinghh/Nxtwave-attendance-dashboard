@@ -29,7 +29,8 @@ export type Profile = {
     name: string;
     degree: string;
     section: string;
-    level: string;
+    /** Admin view only: students never receive their level. */
+    level?: string;
     hall_no: string;
     poc: string;
     coach: string;
@@ -78,6 +79,8 @@ export type Placement = {
   below: boolean;
   /** Present days in a row needed to reach the threshold. */
   days_needed: number;
+  /** Percentage points short of the threshold (0 when met); null when nothing is marked. */
+  gap: number | null;
   months: { month: string; pct: number | null; below: boolean }[];
 };
 
@@ -112,7 +115,7 @@ export type AdminStudent = {
 
 /** Students list filters; hall "" means students with no hall, undefined means any hall. */
 /** term is a term id; empty means the current term. */
-export type StudentFilters = { q?: string; degree?: string; section?: string; hall?: string; term?: string; from?: string; to?: string };
+export type StudentFilters = { q?: string; degree?: string; section?: string; hall?: string; term?: string; from?: string; to?: string; presentToday?: boolean };
 
 /** A student's counts for a date range. clipped: narrowed to the current term (student view). */
 export type RangeResult = { from: string; to: string; summary: Summary; clipped: boolean; outside_term: boolean };
@@ -180,6 +183,7 @@ export const api = {
     const qs = new URLSearchParams({ q: f.q ?? "", degree: f.degree ?? "", section: f.section ?? "" });
     if (f.hall !== undefined) qs.set("hall", f.hall);
     if (f.term) qs.set("term", f.term);
+    if (f.presentToday) qs.set("present", "today");
     if (f.from && f.to) {
       qs.set("from", f.from);
       qs.set("to", f.to);
@@ -611,4 +615,105 @@ export const calendarEntriesApi = {
   deletions: () => request<{ deletions: CalendarDeletion[] }>("/api/admin/calendar/deletions"),
   deletion: (id: number) => request<{ entries: DeletedEntry[] }>(`/api/admin/calendar/deletions/${id}`),
   restore: (id: number) => request<{ restored: number; skipped: number }>(`/api/admin/calendar/deletions/${id}/restore`, { method: "POST" }),
+};
+
+/* ---------- Analytics (Owner only) ---------- */
+
+export type AnalyticsPeriod = "today" | "last7" | "lastmonth" | "custom";
+
+/** Student-day counts for a group. Over several days present / absent are student-days. */
+export type Tally = {
+  students: number;
+  present: number;
+  absent: number;
+  unmarked: number;
+  unmarked_students: number;
+  working_days: number;
+  pct: number | null;
+  avg_present: number | null;
+  avg_absent: number | null;
+};
+export type GroupTally = Tally & { degree: string; hall?: string };
+export type DayTally = { date: string; students: number; present: number; absent: number; unmarked: number; pct: number | null };
+
+export type AnalyticsQuery = {
+  period: AnalyticsPeriod;
+  from?: string;
+  to?: string;
+  degree?: string;
+  /** undefined: all halls; "": students with no hall. */
+  hall?: string;
+  section?: string;
+};
+
+export type Analytics = {
+  period: AnalyticsPeriod;
+  from: string;
+  to: string;
+  today: string;
+  days: number;
+  generated_at: string;
+  filter: { degree: string; hall: string | null; section: string };
+  options: { degrees: string[]; halls: { degree: string; value: string }[]; sections: { degree: string; value: string }[] };
+  total: Tally;
+  degrees: GroupTally[];
+  halls: GroupTally[];
+  daily: DayTally[];
+  insights: {
+    top_degrees: string[];
+    top_degree_pct: number | null;
+    top_halls: string[];
+    top_hall_pct: number | null;
+    bottom_halls: string[];
+    bottom_hall_pct: number | null;
+    change: number | null;
+    prev_pct: number | null;
+  };
+  previous: { from: string; to: string; total: Tally };
+};
+
+function analyticsParams(q: AnalyticsQuery) {
+  const qs = new URLSearchParams({ period: q.period });
+  if (q.period === "custom" && q.from && q.to) {
+    qs.set("from", q.from);
+    qs.set("to", q.to);
+  }
+  if (q.degree) qs.set("degree", q.degree);
+  if (q.hall !== undefined) qs.set("hall", q.hall);
+  if (q.section) qs.set("section", q.section);
+  return qs;
+}
+
+/** Which students a drill-down lists: everyone eligible, or those with at least one such day. */
+export type AnalyticsShow = "all" | "present" | "absent" | "unmarked";
+export type AnalyticsStudent = {
+  niat_id: string;
+  name: string;
+  degree: string;
+  section: string;
+  hall_no: string;
+  present: number;
+  absent: number;
+  unmarked: number;
+  pct: number | null;
+};
+
+export const analyticsApi = {
+  get: (q: AnalyticsQuery) => request<Analytics>(`/api/admin/analytics?${analyticsParams(q)}`),
+  /** The students behind a card or a degree / hall row (Owner only). */
+  students: (q: AnalyticsQuery, show: AnalyticsShow) => {
+    const qs = analyticsParams(q);
+    qs.set("show", show);
+    return request<{ from: string; to: string; show: AnalyticsShow; students: AnalyticsStudent[] }>(`/api/admin/analytics/students?${qs}`);
+  },
+  /** The same report as an Excel workbook (aggregates only). */
+  excel: async (q: AnalyticsQuery): Promise<{ blob: Blob; name: string }> => {
+    const res = await fetch(`/api/admin/analytics/export.xlsx?${analyticsParams(q)}`);
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new ApiError(res.status, body?.error?.message ?? `Export failed (${res.status})`, body?.error?.details);
+    }
+    const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ?? "attendance-analytics.xlsx";
+    return { blob: await res.blob(), name };
+  },
 };

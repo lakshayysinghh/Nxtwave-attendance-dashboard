@@ -8,7 +8,6 @@ import {
   PctBadge,
   PeriodDates,
   TermRange,
-  bandInfo,
   categoryInfo,
   fmtDate,
   fmtDay,
@@ -146,7 +145,6 @@ export function StudentProfile({
             <dl className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-4">
               <Field label="Degree" value={s.degree} />
               <Field label="Section" value={s.section} />
-              <Field label="Level" value={s.level || "–"} />
               <Field label="Hall" value={s.hall_no || "–"} />
               <Field label="POC" value={s.poc || "Not assigned"} />
               <Field label="Success coach" value={s.coach || "Not assigned"} />
@@ -161,13 +159,7 @@ export function StudentProfile({
           <div className="flex flex-col items-start gap-1 md:items-end">
             <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Attendance</span>
             <span className="text-5xl font-semibold tabular-nums text-primary">{pctText(p.summary.pct)}</span>
-            {p.summary.band !== "none" ? (
-              <span className={`rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${bandInfo[p.summary.band].cls}`}>
-                {bandInfo[p.summary.band].label}
-              </span>
-            ) : (
-              <span className="text-xs text-muted-foreground">No marks yet</span>
-            )}
+            <TargetLine placement={p.placement} />
           </div>
         </CardContent>
       </Card>
@@ -180,7 +172,7 @@ export function StudentProfile({
         <Tile
           label="Working days so far"
           value={p.summary.marked_days}
-          note={p.summary.not_marked_days > 0 ? `present + absent · ${p.summary.not_marked_days} class day${p.summary.not_marked_days === 1 ? "" : "s"} not marked yet` : "present + absent"}
+          note="present + absent"
         />
         <Tile label="Days present" value={p.summary.days_attended} tone="text-green-700" />
         <Tile label="Days absent" value={p.summary.days_absent} tone="text-red-700" />
@@ -490,12 +482,26 @@ function MonthCaution({
 /** Admin-only header fields for StudentProfile. */
 export function adminFields(s: Profile["student"]): { label: string; value: string }[] {
   const out = [
+    { label: "Level", value: s.level || "–" },
     { label: "Status", value: s.status === "active" ? "Active" : "Dropped" },
     { label: "Joined on", value: s.joined_on ? fmtDate(s.joined_on) : "Term start" },
   ];
   if (s.dropped_on) out.push({ label: "Dropped on", value: fmtDate(s.dropped_on) });
   if (s.demo) out.push({ label: "Data", value: "Demo (N99)" });
   return out;
+}
+
+/** Under the big %: how far the student is from the placement target. The gap comes from the API. */
+function TargetLine({ placement: pl }: { placement: Placement }) {
+  if (pl.gap === null) return <span className="text-xs text-muted-foreground">No marks yet</span>;
+  const gap = Number.isInteger(pl.gap) ? String(pl.gap) : pl.gap.toFixed(1);
+  return pl.gap === 0 ? (
+    <span className="text-xs font-medium text-green-700 dark:text-green-400">{pl.threshold}% target achieved</span>
+  ) : (
+    <span className="text-xs text-muted-foreground">
+      <span className="font-semibold text-foreground tabular-nums">{gap}%</span> more needed to reach {pl.threshold}%
+    </span>
+  );
 }
 
 function Field({ label, value }: { label: string; value: string }) {

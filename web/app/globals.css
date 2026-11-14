@@ -49,6 +49,10 @@
 }
 
 :root {
+  /* Analytics charts: present / absent (validated for colour-blind separation), unmarked neutral. */
+  --viz-present: #2a78d6;
+  --viz-absent: #eb6834;
+  --viz-unmarked: #cbd5e1;
   --background: #f8fafc;
   --foreground: #0f172a;
   --card: #ffffff;
@@ -85,6 +89,9 @@
 
 /* Night mode: deep navy surfaces, soft text and a light blue accent. */
 .dark {
+  --viz-present: #3987e5;
+  --viz-absent: #d95926;
+  --viz-unmarked: #334155;
   color-scheme: dark;
   --background: #0a0f1c;
   --foreground: #e6ebf3;
@@ -201,4 +208,16 @@
 html.theme-transition,
 html.theme-transition * {
   transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease !important;
+}
+
+/* Respect "reduce motion": overlays and cards appear without sliding or lifting. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

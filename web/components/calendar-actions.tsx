@@ -1,8 +1,7 @@
 "use client";
 
-import { Dialog } from "@base-ui/react/dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { X } from "lucide-react";
+import { CenteredDialog } from "@/components/ui/overlay";
 import { useState } from "react";
 
 import { fmtDate } from "@/components/attendance-ui";
@@ -71,25 +70,7 @@ export function Banner({ msg }: { msg: { ok: boolean; text: string } | null }) {
   );
 }
 
-/** A centred dialog; Escape, the backdrop or ✕ closes it. */
-function Modal({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode }) {
-  return (
-    <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
-      <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-50 bg-slate-900/30" />
-        <Dialog.Popup className="fixed top-1/2 left-1/2 z-50 flex max-h-[90dvh] w-[min(46rem,calc(100vw-1rem))] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg bg-white shadow-xl outline-none">
-          <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
-            <Dialog.Title className="text-base font-semibold text-primary">{title}</Dialog.Title>
-            <Dialog.Close aria-label="Close" className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
-              <X className="size-5" />
-            </Dialog.Close>
-          </div>
-          <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4 text-sm">{children}</div>
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
-  );
-}
+const Modal = CenteredDialog;
 
 /** What a calendar change does to attendance days. Marks are never changed. */
 export function ImpactSummary({ impact }: { impact: CalendarImpact }) {

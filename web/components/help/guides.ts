@@ -36,9 +36,9 @@ export const guides = {
           rows: [
             ["Line under the title", "The term and its dates, and **data up to**: the last day included in the numbers"],
             ["**Term** picker", "Switch to a past or future term; every number on the page follows"],
-            ["**Students**", "Students listed, and how many have **no marks yet**"],
+            ["**Students**", "Students listed, and how many have **no marks yet**. Click it to list them all."],
             ["**Average attendance**", "The average of the students' own percentages. Students with no marks are left out."],
-            ["**Band cards**", "For each band: its share of the students with marks, and the count. Click a card to open those students."],
+            ["**Band cards**", "For each band: its share of the students with marks, and the count. Click a card to list those students in a side panel (a sheet from the bottom on a phone): search, filter by degree, section or hall, and click a student to open their record. **Open in the Students list** at the bottom goes to the full table."],
             ["**Students needing attention**", "Up to 6 students below 75%, lowest first, with links to see all of them"],
             ["**System status**", "Folded at the bottom: whether the server and database are reachable"],
           ],
@@ -104,6 +104,7 @@ export const guides = {
         points: [
           "**Search** matches part of a name or the start of a NIAT ID.",
           "**Degree**, **Section** and **Hall** (including No hall) narrow the list. Section choices follow the chosen degree.",
+          "**Present today** shows only students marked Present for today's date (India time), along with how many there are. Absent and unmarked students are hidden, and the other filters still apply. Click it again, or **Clear filters**, to see everyone.",
           "Click a **band card** to show only that band; click it again to undo.",
           "**Clear filters** resets everything. The line under the filters shows how many students are shown out of the total.",
           "The **Term** picker shows percentages for any term.",
@@ -155,7 +156,7 @@ export const guides = {
     title: "Student record",
     summary: "One student's full record, internships and registration.",
     sections: [
-      { title: "What this page is for", text: "Everything the student sees on their own page, plus admin details and controls: placement cautions, internship and registration periods, the monthly summary and a day-by-day calendar." },
+      { title: "What this page is for", text: "Everything the student sees on their own page, plus admin details and controls: placement cautions, internship and registration periods, the monthly summary and a day-by-day calendar. **Level**, Status and Joined on are admin details: the student never sees them." },
       {
         title: "Buttons at the top",
         table: {
@@ -581,7 +582,8 @@ export const guides = {
           head: ["Part", "Meaning"],
           rows: [
             ["**Attendance %**", "Present ÷ (Present + Absent) on days that count. Days not marked are left out."],
-            ["**Working days so far**", "Days marked present or absent so far (present + absent). Class days not marked yet are shown under it and left out."],
+            ["**Under the %**", "How far you are from the **95%** placement target, e.g. **23% more needed to reach 95%**, or **95% target achieved**"],
+            ["**Working days so far**", "Days marked present or absent so far (present + absent). Days not marked are left out."],
             ["**Placement cautions**", "Placements need **95%**, overall and every month. Below that, a red caution says placement eligibility will be affected."],
             ["**Remark**", "A note from the admins for that month, e.g. medical leave approved"],
             ["**Internship and registration**", "Internship days count as Present; Term 5 registration pending days count as Absent"],
@@ -698,10 +700,71 @@ export const guides = {
     ],
   },
 
+  analytics: {
+    title: "Analytics",
+    summary: "Attendance by degree and hall for any period, ready to share.",
+    roles: OWNER,
+    sections: [
+      {
+        title: "What this page is for",
+        text: "A one-screen attendance report for management: how many eligible students attended, for BITS, CDU and every hall. Only the Owner sees this page.",
+      },
+      {
+        title: "Choosing what to see",
+        steps: [
+          "Pick **Today**, **Last 7 days**, **Last month** (the previous calendar month) or **Custom** dates. Dates follow India time.",
+          "Narrow by **Degree**, **Hall** and **Section**. Every card, chart and table updates together.",
+          "**Clear all filters** goes back to today for everyone. The choice is kept in the page address, so a bookmark opens the same report.",
+          "Click any card, a degree row or a hall to see the students behind the number, with their present, absent and unmarked days. Search, filter and sort the list, and click a student to open their record. Escape, ✕ or a click outside closes it.",
+        ],
+      },
+      {
+        title: "The numbers",
+        table: {
+          head: ["Figure", "Meaning"],
+          rows: [
+            ["**Eligible students**", "Students who had class on at least one working day in the period (term, calendar, join and drop dates applied)"],
+            ["**Working day**", "A class day on which attendance was marked for that degree. Holidays, exams, Sundays and days nobody was marked are left out."],
+            ["**Present / Absent**", "For one day: students. For several days: student-days (one student on one day), so the same student counts once per day."],
+            ["**Per day (avg)**", "Present (or absent) student-days ÷ working days: how many attended on a typical day"],
+            ["**Unmarked**", "An eligible student with no mark on a working day. Never counted as absent."],
+            ["**Attendance %**", "Present ÷ (present + absent), to two decimals"],
+            ["**Compared with**", "One day: the previous working day. Last month: the month before. Otherwise the same number of days just before, e.g. the 7 days before the last 7."],
+          ],
+        },
+      },
+      {
+        title: "Sharing",
+        steps: [
+          "**PDF** and **PNG** save the report area exactly as shown, without the menu or filters.",
+          "**Excel** saves the same numbers as a workbook: Summary, By degree, By hall and Daily.",
+          "**Print** prints the report only.",
+          "Exports follow the current dates and filters and never list individual students.",
+        ],
+      },
+      {
+        title: "Troubleshooting",
+        table: {
+          head: ["You see", "Why"],
+          rows: [
+            ["“No attendance has been marked … yet”", "Nothing is uploaded or marked for those dates. Import attendance, then come back."],
+            ["Unmarked students today", "Some halls are not marked yet; they are not counted as absent"],
+            ["No highest or lowest hall", "Shown only when at least two halls have marks and they differ"],
+          ],
+        },
+      },
+    ],
+  },
+
   analysis: {
     title: "Reports and analysis",
-    summary: "Where to find answers; there are no downloadable reports.",
+    summary: "Where to find answers.",
     sections: [
+      {
+        title: "Analytics (Owner)",
+        roles: OWNER,
+        text: "For a report to share, open **Analytics**: attendance for Today, Last 7 days, Last month or any dates, by degree and by hall, with PDF, Excel, PNG and Print.",
+      },
       {
         title: "Where to look",
         table: {
@@ -744,7 +807,7 @@ export const guides = {
 export type GuideId = keyof typeof guides;
 
 /** Order of the topics on the Help & Guide page. */
-export const helpOrder: GuideId[] = ["rules", "roles", "overview", "students", "student-page", "periods", "attendance", "imports", "calendar", "terms", "admins", "analysis", "student-view", "login"];
+export const helpOrder: GuideId[] = ["rules", "roles", "overview", "students", "student-page", "periods", "attendance", "imports", "calendar", "terms", "admins", "analytics", "analysis", "student-view", "login"];
 
 export const canSee = (g: Guide, role: Role) => !g.roles || g.roles.includes(role);
 export const visibleSections = (g: Guide, role: Role) => g.sections.filter((s) => !s.roles || s.roles.includes(role));

@@ -2,9 +2,10 @@
 
 import { Dialog } from "@base-ui/react/dialog";
 import { Tooltip } from "@base-ui/react/tooltip";
-import { Info, X } from "lucide-react";
+import { Info } from "lucide-react";
 import { Fragment, useState } from "react";
 
+import { SheetContent } from "@/components/ui/overlay";
 import { guides, visibleSections, type Guide, type GuideId, type Line, type Role, type Row, type Section } from "@/components/help/guides";
 
 /** Renders **bold** and `code` inside a help string. */
@@ -124,23 +125,9 @@ export function PageHelp({ id, role }: { id: GuideId; role: Role }) {
           </Tooltip.Positioner>
         </Tooltip.Portal>
       </Tooltip.Root>
-      <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-50 bg-slate-900/30" />
-        <Dialog.Popup className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col bg-white shadow-xl outline-none">
-          <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
-            <div>
-              <Dialog.Title className="text-base font-semibold text-primary">{guide.title}</Dialog.Title>
-              <Dialog.Description className="text-xs text-muted-foreground">How to use this page</Dialog.Description>
-            </div>
-            <Dialog.Close aria-label="Close guide" className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
-              <X className="size-5" />
-            </Dialog.Close>
-          </div>
-          <div className="flex-1 overflow-y-auto px-4 py-4">
-            <GuideBody guide={guide} role={role} />
-          </div>
-        </Dialog.Popup>
-      </Dialog.Portal>
+      <SheetContent title={guide.title} description="How to use this page" closeLabel="Close guide" mobile="side">
+        <GuideBody guide={guide} role={role} />
+      </SheetContent>
     </Dialog.Root>
   );
 }

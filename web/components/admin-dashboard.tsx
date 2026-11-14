@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, ClipboardCheck, Upload, UserPlus } from "lucide-react";
+import { ArrowRight, ClipboardCheck, Upload, UserCheck, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -12,6 +12,8 @@ import { markQueryKeys } from "@/components/import-attendance";
 import { StudentFormCard } from "@/components/student-form";
 import { Legend, PctBadge, TermRange, bandInfo, fmtDate, fmtDay } from "@/components/attendance-ui";
 import { RangePicker } from "@/components/date-range";
+import { StudentSheet, byName } from "@/components/student-sheet";
+import { StatCard } from "@/components/ui/stat-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ApiError, api, pctText, studentsApi, termsApi, type AdminStudent, type Band, type Mark, type MarkInput } from "@/lib/api";
@@ -79,42 +81,87 @@ export function TermPicker() {
   );
 }
 
-/** Students, average and the three band cards. Band cards call onBand. */
-function SummaryCards({ band, onBand, hint }: { band?: BandKey | null; onBand: (b: BandKey) => void; hint: (on: boolean) => string }) {
+/**
+ * Students, average and the three band cards. Band cards call onBand; the
+ * Students card calls onAll when given.
+ */
+function SummaryCards({ band, onBand, onAll, hint }: { band?: BandKey | null; onBand: (b: BandKey) => void; onAll?: () => void; hint: (on: boolean) => string }) {
   const all = useAllStudents();
   const o = all.data?.overview;
   const withData = o ? o.students - o.bands.none : 0;
   return (
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-      <SummaryCard label="Students" value={o ? String(o.students) : "…"} note={o && o.bands.none > 0 ? `${o.bands.none} with no marks yet` : undefined} />
-      <SummaryCard label="Average attendance" value={o ? pctText(o.average_pct) : "…"} accent />
+      <StatCard
+        label="Students"
+        value={o ? String(o.students) : "…"}
+        note={o && o.bands.none > 0 ? `${o.bands.none} with no marks yet` : onAll ? "Click to list them" : undefined}
+        onClick={onAll && o?.students ? onAll : undefined}
+        compact
+      />
+      <StatCard label="Average attendance" value={o ? pctText(o.average_pct) : "…"} accent compact />
       {bandOrder.map((b) => {
         const count = o?.bands[b] ?? 0;
         const share = withData ? Math.round((count * 100) / withData) : 0;
         const on = band === b;
         return (
-          <button
+          <StatCard
             key={b}
-            type="button"
+            dot={bandInfo[b].dot}
+            label={bandInfo[b].label}
+            pressed={on}
             onClick={() => onBand(b)}
-            aria-pressed={on}
-            className={`rounded-xl bg-card p-3 text-left ring-1 ${on ? "ring-2 ring-primary" : "ring-foreground/10 hover:ring-primary/40"} ${b === "75_plus" ? "col-span-2 lg:col-span-1" : ""}`}
-          >
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span className={`size-2 rounded-full ${bandInfo[b].dot}`} />
-              {bandInfo[b].label}
-            </div>
-            <div className="mt-1 flex items-baseline gap-2">
-              <span className="text-2xl font-semibold tabular-nums">{o ? `${share}%` : "…"}</span>
-              <span className="text-sm text-muted-foreground">
-                {count} student{count === 1 ? "" : "s"}
+            compact
+            className={b === "75_plus" ? "col-span-2 lg:col-span-1" : undefined}
+            value={
+              <span className="flex items-baseline gap-2">
+                {o ? `${share}%` : "…"}
+                <span className="text-sm font-normal text-muted-foreground">
+                  {count} student{count === 1 ? "" : "s"}
+                </span>
               </span>
-            </div>
-            <div className="mt-1 text-xs text-primary">{hint(on)}</div>
-          </button>
+            }
+            note={<span className="text-primary">{hint(on)}</span>}
+          />
         );
       })}
     </div>
+  );
+}
+
+/** Overview drill-down: the students in a band (or everyone), from the loaded list. */
+type OverviewDrill = { band: Band | "all" };
+
+function OverviewSheet({ drill, onClose }: { drill: OverviewDrill | null; onClose: () => void }) {
+  const all = useAllStudents();
+  const term = useTermParam();
+  const b = drill?.band ?? "all";
+  const rows = all.data?.students.filter((s) => b === "all" || s.band === b);
+  const title = b === "all" ? "All students" : b === "none" ? "No marks yet" : `${bandInfo[b].label}`;
+  const listHref = `/admin/students?${new URLSearchParams({ ...(b !== "all" && b !== "none" ? { band: b } : {}), ...(term ? { term } : {}) })}`;
+  const lowFirst = (x: AdminStudent, y: AdminStudent) => (x.summary.pct ?? 101) - (y.summary.pct ?? 101) || byName(x, y);
+  return (
+    <StudentSheet
+      key={b}
+      open={drill !== null}
+      onOpenChange={(o) => !o && onClose()}
+      title={title}
+      description={all.data?.term ? <TermRange term={all.data.term} /> : "Current term"}
+      rows={rows}
+      loading={all.isPending}
+      error={all.error?.message}
+      metric={(s) => <PctBadge pct={s.summary.pct} band={s.band} />}
+      detail={(s) => `Present ${s.summary.days_attended} · Absent ${s.summary.days_absent} · Working days ${s.summary.marked_days}`}
+      sorts={[
+        { label: "Lowest % first", compare: lowFirst },
+        { label: "Highest % first", compare: (x, y) => lowFirst(y, x) },
+        { label: "Name A–Z", compare: byName },
+      ]}
+      footer={
+        <Link href={listHref} className="flex items-center justify-center gap-1 text-sm font-medium text-primary hover:underline">
+          Open in the Students list <ArrowRight className="size-4" />
+        </Link>
+      }
+    />
   );
 }
 
@@ -131,8 +178,7 @@ function TermLine() {
 
 /** Overview: the numbers at a glance, students needing attention and quick actions. */
 export function OverviewPage() {
-  const router = useRouter();
-  const term = useTermParam();
+  const [drill, setDrill] = useState<OverviewDrill | null>(null);
   const all = useAllStudents();
   // Lowest first among students below 75% (the plan's default low threshold).
   const attention = (all.data?.students ?? [])
@@ -150,10 +196,8 @@ export function OverviewPage() {
         <QuickAction href="/admin/imports?tab=attendance" icon={Upload} label="Import attendance" />
       </PageHeading>
 
-      <SummaryCards
-        onBand={(b) => router.push(`/admin/students?${new URLSearchParams({ band: b, ...(term ? { term } : {}) })}`)}
-        hint={() => "View these students →"}
-      />
+      <SummaryCards onBand={(b) => setDrill({ band: b })} onAll={() => setDrill({ band: "all" })} hint={() => "View these students"} />
+      <OverviewSheet drill={drill} onClose={() => setDrill(null)} />
 
       <Card>
         <CardHeader>
@@ -217,7 +261,7 @@ function QuickAction({ href, icon: Icon, label, primary }: { href: string; icon:
 
 /**
  * Students: band cards as filters, search, degree / section / hall filters and
- * the full table. Every filter lives in the URL (?q=&band=&degree=&section=&hall=),
+ * the full table. Every filter lives in the URL (?q=&band=&degree=&section=&hall=&present=),
  * so Back from a student returns to the same list.
  */
 export function StudentsPage() {
@@ -228,6 +272,8 @@ export function StudentsPage() {
   const degree = params.get("degree") ?? "";
   const section = params.get("section") ?? "";
   const hall = params.has("hall") ? (params.get("hall") ?? "") : undefined;
+  // ?present=today: only students marked Present today (IST, decided by the API).
+  const presentToday = params.get("present") === "today";
   // The search box updates the URL as you type; keep its own state so typing stays smooth.
   const [q, setQ] = useState(params.get("q") ?? "");
   const [adding, setAdding] = useState(false);
@@ -252,7 +298,7 @@ export function StudentsPage() {
   const [dates, setDates] = useState({ from: params.get("from") ?? "", to: params.get("to") ?? "" });
   const { from, to } = dates;
   const ranged = from !== "" && to !== "" && from <= to;
-  const filters = { q, degree, section, hall, term: params.get("term") ?? "", ...(ranged ? { from, to } : {}) };
+  const filters = { q, degree, section, hall, presentToday, term: params.get("term") ?? "", ...(ranged ? { from, to } : {}) };
   const list = useQuery({
     queryKey: ["students", filters],
     queryFn: () => api.students(filters),
@@ -260,7 +306,7 @@ export function StudentsPage() {
   });
   const total = all.data?.overview.students ?? 0;
   const rows = (list.data?.students ?? []).filter((s) => !band || s.band === band);
-  const filtered = q !== "" || band !== null || degree !== "" || section !== "" || hall !== undefined || from !== "" || to !== "";
+  const filtered = q !== "" || band !== null || degree !== "" || section !== "" || hall !== undefined || presentToday || from !== "" || to !== "";
 
   // Filter choices come from every student, so they don't shrink as you filter.
   const everyone = all.data?.students ?? [];
@@ -291,7 +337,7 @@ export function StudentsPage() {
           <CardDescription>Search by name or NIAT ID, filter, or pick a band above. Click a student to see everything they see.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[1fr_auto_auto_auto_auto]">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[1fr_auto_auto_auto_auto_auto]">
             <input
               className={`${inputCls} w-full`}
               value={q}
@@ -323,6 +369,14 @@ export function StudentsPage() {
                 </option>
               ))}
             </FilterSelect>
+            <Button
+              variant={presentToday ? "default" : "outline"}
+              className="h-10"
+              aria-pressed={presentToday}
+              onClick={() => setParam({ present: presentToday ? null : "today" })}
+            >
+              <UserCheck className="size-4" /> Present today
+            </Button>
             <Button
               variant="outline"
               className="h-10"
@@ -357,6 +411,14 @@ export function StudentsPage() {
             </span>
           </div>
           <p className="text-xs text-muted-foreground">
+            {presentToday && list.isSuccess && (
+              <>
+                <b className="font-semibold text-foreground">
+                  {rows.length} present today{all.data?.today ? ` (${fmtDate(all.data.today)})` : ""}
+                </b>
+                {" · "}
+              </>
+            )}
             Showing {rows.length} of {total} students
             {band && <> · band: {bandInfo[band].label}</>}
             {q && <> · search: “{q}”</>}
@@ -364,7 +426,11 @@ export function StudentsPage() {
           </p>
           {isOwner && selected.size > 0 && <BulkDeleteBar ids={[...selected]} onClear={() => setSelected(new Set())} />}
           <StudentRows rows={rows} selection={isOwner ? { selected, onChange: setSelected } : undefined} />
-          {list.isSuccess && rows.length === 0 && <p className="py-2 text-sm text-muted-foreground">No students match these filters.</p>}
+          {list.isSuccess && rows.length === 0 && (
+            <p className="py-2 text-sm text-muted-foreground">
+              {presentToday ? "No student matching these filters is marked Present today." : "No students match these filters."}
+            </p>
+          )}
         </CardContent>
       </Card>
     </>
@@ -591,16 +657,6 @@ function StudentRows({ rows, compact, selection }: { rows: AdminStudent[]; compa
         ))}
       </ul>
     </>
-  );
-}
-
-function SummaryCard({ label, value, accent, note }: { label: string; value: string; accent?: boolean; note?: string }) {
-  return (
-    <div className="rounded-xl bg-card p-3 ring-1 ring-foreground/10">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className={`mt-1 text-2xl font-semibold tabular-nums ${accent ? "text-primary" : ""}`}>{value}</div>
-      {note && <div className="mt-1 text-xs text-muted-foreground">{note}</div>}
-    </div>
   );
 }
 
