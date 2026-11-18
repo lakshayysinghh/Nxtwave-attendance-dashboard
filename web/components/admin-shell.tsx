@@ -65,7 +65,16 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const [changing, setChanging] = useState(false);
 
   if (me.isPending || !me.data) {
-    return <p className="p-6 text-sm text-muted-foreground">{me.error ? me.error.message : "Loading…"}</p>;
+    if (!me.error) return <p className="p-6 text-sm text-muted-foreground">Loading…</p>;
+    // The session check is not retried automatically (e.g. after a 429); let the admin ask again.
+    return (
+      <div className="flex flex-col items-start gap-3 p-6 text-sm text-muted-foreground">
+        <p>{me.error.message}</p>
+        <Button size="sm" variant="outline" onClick={() => me.refetch()} disabled={me.isFetching}>
+          {me.isFetching ? "Checking…" : "Try again"}
+        </Button>
+      </div>
+    );
   }
   const admin = me.data;
 

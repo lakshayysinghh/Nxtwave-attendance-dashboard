@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -29,6 +30,9 @@ type Config struct {
 	GoogleClientID     string
 	GoogleClientSecret string
 	OwnerEmail         string
+	// TrustedProxyHops is how many proxies in front of the API append to
+	// X-Forwarded-For (rate limiting reads the client IP through them). 0 = none.
+	TrustedProxyHops int
 }
 
 func (c Config) IsProduction() bool { return c.Env == "production" }
@@ -66,6 +70,13 @@ func fromEnv(env string, getenv func(string) string) (Config, error) {
 	}
 	if cfg.Port == "" {
 		cfg.Port = "8080"
+	}
+	if v := get("TRUSTED_PROXY_HOPS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 || n > 5 {
+			return Config{}, fmt.Errorf("TRUSTED_PROXY_HOPS must be a number from 0 to 5, got %q", v)
+		}
+		cfg.TrustedProxyHops = n
 	}
 
 	if cfg.IsProduction() {

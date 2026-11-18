@@ -31,6 +31,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request", "Enter your email and password.", nil)
 		return
 	}
+	// Checked before bcrypt, so a locked-out caller costs no hashing.
+	if s.loginAccount.RespondOnLimit(w, r, "login:"+s.clientIP(r)+"|"+email) {
+		return
+	}
 
 	admin, err := s.store.GetAdminByEmail(r.Context(), email)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {

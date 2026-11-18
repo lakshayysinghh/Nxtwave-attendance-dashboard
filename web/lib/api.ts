@@ -148,20 +148,70 @@ export class ApiError extends Error {
     public status: number,
     message: string,
     public details?: unknown,
+    /** On 429: how long the server asked us to wait, in ms. */
+    public retryAfterMs?: number,
+    /** The API's error code, e.g. "unauthenticated" or "invalid_credentials". */
+    public code?: string,
   ) {
     super(message);
   }
 }
 
+/** Wait used when a 429 has no usable Retry-After (e.g. an edge challenge page). */
+const DEFAULT_RATE_LIMIT_WAIT_MS = 30_000;
+const MAX_RATE_LIMIT_WAIT_MS = 10 * 60_000;
+
+/** Reads Retry-After (seconds or an HTTP date) as a wait in ms, capped. */
+export function parseRetryAfter(value: string | null, now = Date.now()): number {
+  if (value) {
+    const secs = Number(value);
+    const ms = Number.isFinite(secs) ? secs * 1000 : Date.parse(value) - now;
+    if (Number.isFinite(ms) && ms >= 0) return Math.min(ms, MAX_RATE_LIMIT_WAIT_MS);
+  }
+  return DEFAULT_RATE_LIMIT_WAIT_MS;
+}
+
+// After a 429, background reads (GETs) fail locally until this time instead
+// of hitting the network again; user actions (POST/PUT/...) still go through.
+let rateLimitedUntil = 0;
+
+function rateLimitError(waitMs: number): ApiError {
+  const secs = Math.max(1, Math.ceil(waitMs / 1000));
+  return new ApiError(429, `Too many requests. Try again in ${secs} second${secs === 1 ? "" : "s"}.`, undefined, waitMs);
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const isRead = (init?.method ?? "GET").toUpperCase() === "GET";
+  const wait = rateLimitedUntil - Date.now();
+  if (isRead && wait > 0) throw rateLimitError(wait);
+
   const res = await fetch(path, {
     ...init,
     headers: { Accept: "application/json", ...(init?.body ? { "Content-Type": "application/json" } : {}) },
   });
+  if (res.status === 429) {
+    // The API sends JSON; an upstream edge (Vercel/Cloudflare) may send an HTML page.
+    const waitMs = parseRetryAfter(res.headers.get("Retry-After"));
+    rateLimitedUntil = Math.max(rateLimitedUntil, Date.now() + waitMs);
+    throw rateLimitError(waitMs);
+  }
   const body = await res.json().catch(() => null);
   // /api/health answers 503 with a valid body when the DB is down; surface that body.
   if (res.ok || (path === "/api/health" && res.status === 503 && body)) return body as T;
-  throw new ApiError(res.status, body?.error?.message ?? `Request failed (${res.status})`, body?.error?.details);
+  throw new ApiError(res.status, body?.error?.message ?? `Request failed (${res.status})`, body?.error?.details, undefined, body?.error?.code);
+}
+
+/** True when the session is gone or the admin was deactivated (not a wrong password, which is also 401). */
+export function isSessionEnded(e: unknown): boolean {
+  return (
+    e instanceof ApiError &&
+    ((e.status === 401 && e.code === "unauthenticated") || (e.status === 403 && e.code === "admin_deactivated"))
+  );
+}
+
+/** True for errors a retry cannot fix: signed out, forbidden, or rate limited. */
+export function isNoRetryError(e: unknown): boolean {
+  return e instanceof ApiError && (e.status === 401 || e.status === 403 || e.status === 429);
 }
 
 export const api = {
