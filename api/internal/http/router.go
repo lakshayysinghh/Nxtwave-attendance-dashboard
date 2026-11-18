@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/httprate"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"attendance-dashboard/api/internal/auth"
@@ -28,6 +29,9 @@ type Deps struct {
 	AppBaseURL    string
 	SecureCookies bool
 	Location      *time.Location // Asia/Kolkata
+	// TrustedProxyHops is how many proxies in front of the API append to
+	// X-Forwarded-For; 0 keys IP rate limits on the TCP peer. See clientIP.
+	TrustedProxyHops int
 }
 
 type Server struct {
@@ -40,6 +44,9 @@ type Server struct {
 	secureCookies bool
 	loc           *time.Location
 	now           func() time.Time
+	proxyHops     int
+	// loginAccount limits sign-in attempts per client IP + email.
+	loginAccount *httprate.RateLimiter
 }
 
 func NewServer(d Deps) *Server {
@@ -53,6 +60,8 @@ func NewServer(d Deps) *Server {
 		secureCookies: d.SecureCookies,
 		loc:           d.Location,
 		now:           time.Now,
+		proxyHops:     d.TrustedProxyHops,
+		loginAccount:  newRateLimiter(loginPerAccountLimit, time.Minute),
 	}
 }
 
@@ -61,6 +70,9 @@ func (s *Server) Routes() http.Handler {
 	r.Use(middleware.RequestID)
 	r.Use(s.requestLogger)
 	r.Use(middleware.Recoverer)
+
+	// One shared counter per admin for /auth/me and every /admin route.
+	adminLimit := s.limitPerAdmin(adminPerMinuteLimit, time.Minute)
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/health", s.handleHealth)
@@ -71,10 +83,10 @@ func (s *Server) Routes() http.Handler {
 				r.Get("/google/login", s.handleGoogleLogin)
 				r.Get("/google/callback", s.handleGoogleCallback)
 			}
-			r.With(RateLimitByIP(10, time.Minute)).Post("/login", s.handleLogin)
+			r.With(s.limitPerIP(loginPerIPLimit, time.Minute)).Post("/login", s.handleLogin)
 			r.Post("/logout", s.handleLogout)
-			r.With(s.requireAdmin).Get("/me", s.handleMe)
-			r.With(RateLimitByIP(10, time.Minute), s.requireAdmin).Post("/password", s.handleChangePassword)
+			r.With(s.requireAdmin, adminLimit).Get("/me", s.handleMe)
+			r.With(s.requireAdmin, s.limitPerAdmin(sensitivePerMinuteLimit, time.Minute)).Post("/password", s.handleChangePassword)
 		})
 
 		r.Get("/public/students/{niat_id}", s.handlePublicProfile)
@@ -82,7 +94,7 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/public/students/{niat_id}/range", s.handlePublicRange)
 
 		r.Route("/admin", func(r chi.Router) {
-			r.Use(s.requireAdmin, s.requirePasswordChanged)
+			r.Use(s.requireAdmin, adminLimit, s.requirePasswordChanged)
 			r.Get("/students", s.handleAdminStudents)
 			r.Post("/students", s.handleCreateStudent)
 			r.Get("/students/{niat_id}", s.handleAdminStudent)
@@ -129,7 +141,7 @@ func (s *Server) Routes() http.Handler {
 				r.Patch("/{id}", s.handleUpdateAdmin)
 				r.Delete("/{id}", s.handleDeleteAdmin)
 				r.Post("/{id}/password", s.handleResetAdminPassword)
-				r.With(RateLimitByIP(10, time.Minute)).Post("/{id}/make-owner", s.handleMakeOwner)
+				r.With(s.limitPerAdmin(sensitivePerMinuteLimit, time.Minute)).Post("/{id}/make-owner", s.handleMakeOwner)
 			})
 		})
 
