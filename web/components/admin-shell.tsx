@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   CalendarDays,
   CalendarRange,
+  Download,
   CircleHelp,
   ClipboardCheck,
   GraduationCap,
@@ -46,6 +47,7 @@ const nav: NavItem[] = [
   { href: "/admin/students", label: "Students", icon: Users },
   { href: "/admin/attendance", label: "Mark Attendance", icon: ClipboardCheck },
   { href: "/admin/imports", label: "Imports", icon: Upload },
+  { href: "/admin/exports", label: "Export", icon: Download },
   { href: "/admin/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/admin/terms", label: "Terms", icon: CalendarRange },
   { href: "/admin/analytics", label: "Analytics", icon: ChartColumn, ownerOnly: true },

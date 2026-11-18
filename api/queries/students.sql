@@ -127,3 +127,19 @@ ON CONFLICT (niat_id) DO UPDATE SET
     poc_id      = COALESCE(EXCLUDED.poc_id, students.poc_id),
     joined_on   = COALESCE(EXCLUDED.joined_on, students.joined_on),
     updated_at  = now();
+
+-- name: SetStudentSheetOrders :exec
+-- Student import: remember each row's position in the file (any action but
+-- error), so the export can follow the sheet's order. updated_at is left alone.
+UPDATE students s
+SET sheet_order = u.sheet_order
+FROM (SELECT unnest(sqlc.arg(niat_ids)::text[])   AS niat_id,
+             unnest(sqlc.arg(sheet_orders)::int[]) AS sheet_order) u
+WHERE s.niat_id = u.niat_id AND s.sheet_order IS DISTINCT FROM u.sheet_order;
+
+-- name: ListStudentsForExport :many
+-- Every student, active or dropped, in each degree's sheet order; students
+-- without a sheet position go last, by section and name.
+SELECT niat_id, full_name, degree_code, section, status, joined_on, dropped_on, sheet_order
+FROM students
+ORDER BY degree_code, sheet_order NULLS LAST, section, full_name;
