@@ -224,7 +224,8 @@ export type ImportRow = {
 
 export type ImportResult = {
   file_name: string;
-  summary: { total: number; new: number; updated: number; unchanged: number; errors: number; warnings: number };
+  /** reordered: unchanged students whose row position (used by Export) would change. */
+  summary: { total: number; new: number; updated: number; unchanged: number; errors: number; warnings: number; reordered: number };
   rows: ImportRow[];
   committed: boolean;
   saved: number;
@@ -714,6 +715,51 @@ export const analyticsApi = {
       throw new ApiError(res.status, body?.error?.message ?? `Export failed (${res.status})`, body?.error?.details);
     }
     const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ?? "attendance-analytics.xlsx";
+    return { blob: await res.blob(), name };
+  },
+};
+
+/** One student in the attendance export: one value per date, "" when nothing is saved. */
+export type ExportRow = { niat_id: string; name: string; section: string; dropped: boolean; values: string[] };
+
+export type ExportDegree = {
+  degree: string;
+  /** In the order of the last student import file. */
+  rows: ExportRow[];
+  /** Class days of active students with no mark yet. */
+  unmarked: number;
+  /** Students with no position from a student import (listed last). */
+  unordered: number;
+};
+
+export type AttendanceExport = {
+  from: string;
+  to: string;
+  today: string;
+  dates: string[];
+  /** Column headers as in the master sheet, e.g. 13-Nov-2026. */
+  headers: string[];
+  degrees: ExportDegree[];
+};
+
+const exportParams = (from: string, to: string) => {
+  const qs = new URLSearchParams();
+  if (from) qs.set("from", from);
+  if (to) qs.set("to", to);
+  return qs;
+};
+
+export const exportApi = {
+  /** Saved attendance per degree for the dates; both blank means today. */
+  attendance: (from: string, to: string) => request<AttendanceExport>(`/api/admin/exports/attendance?${exportParams(from, to)}`),
+  /** The same as an Excel workbook, one tab per degree. */
+  excel: async (from: string, to: string): Promise<{ blob: Blob; name: string }> => {
+    const res = await fetch(`/api/admin/exports/attendance.xlsx?${exportParams(from, to)}`);
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new ApiError(res.status, body?.error?.message ?? `Export failed (${res.status})`, body?.error?.details);
+    }
+    const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ?? "attendance.xlsx";
     return { blob: await res.blob(), name };
   },
 };

@@ -37,7 +37,7 @@ const createStudent = `-- name: CreateStudent :one
 INSERT INTO students (niat_id, full_name, degree_code, section, level, hall_no, poc_id, coach_id, status, joined_on, dropped_on)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT (niat_id) DO NOTHING
-RETURNING niat_id, full_name, degree_code, section, level, hall_no, poc_id, coach_id, status, joined_on, dropped_on, created_at, updated_at
+RETURNING niat_id, full_name, degree_code, section, level, hall_no, poc_id, coach_id, status, joined_on, dropped_on, created_at, updated_at, sheet_order
 `
 
 type CreateStudentParams struct {
@@ -84,6 +84,7 @@ func (q *Queries) CreateStudent(ctx context.Context, arg CreateStudentParams) (S
 		&i.DroppedOn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SheetOrder,
 	)
 	return i, err
 }
@@ -140,7 +141,7 @@ func (q *Queries) DeleteStudentsByIDs(ctx context.Context, niatIds []string) ([]
 }
 
 const getStudent = `-- name: GetStudent :one
-SELECT s.niat_id, s.full_name, s.degree_code, s.section, s.level, s.hall_no, s.poc_id, s.coach_id, s.status, s.joined_on, s.dropped_on, s.created_at, s.updated_at, poc.name AS poc_name, coach.name AS coach_name
+SELECT s.niat_id, s.full_name, s.degree_code, s.section, s.level, s.hall_no, s.poc_id, s.coach_id, s.status, s.joined_on, s.dropped_on, s.created_at, s.updated_at, s.sheet_order, poc.name AS poc_name, coach.name AS coach_name
 FROM students s
 LEFT JOIN mentors poc ON poc.id = s.poc_id
 LEFT JOIN mentors coach ON coach.id = s.coach_id
@@ -161,6 +162,7 @@ type GetStudentRow struct {
 	DroppedOn  pgtype.Date        `json:"dropped_on"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+	SheetOrder pgtype.Int4        `json:"sheet_order"`
 	PocName    pgtype.Text        `json:"poc_name"`
 	CoachName  pgtype.Text        `json:"coach_name"`
 }
@@ -182,6 +184,7 @@ func (q *Queries) GetStudent(ctx context.Context, niatID string) (GetStudentRow,
 		&i.DroppedOn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SheetOrder,
 		&i.PocName,
 		&i.CoachName,
 	)
@@ -189,7 +192,7 @@ func (q *Queries) GetStudent(ctx context.Context, niatID string) (GetStudentRow,
 }
 
 const getStudentsByIDs = `-- name: GetStudentsByIDs :many
-SELECT niat_id, full_name, degree_code, section, level, hall_no, poc_id, coach_id, status, joined_on, dropped_on, created_at, updated_at FROM students WHERE niat_id = ANY($1::text[])
+SELECT niat_id, full_name, degree_code, section, level, hall_no, poc_id, coach_id, status, joined_on, dropped_on, created_at, updated_at, sheet_order FROM students WHERE niat_id = ANY($1::text[])
 `
 
 func (q *Queries) GetStudentsByIDs(ctx context.Context, niatIds []string) ([]Student, error) {
@@ -215,6 +218,7 @@ func (q *Queries) GetStudentsByIDs(ctx context.Context, niatIds []string) ([]Stu
 			&i.DroppedOn,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SheetOrder,
 		); err != nil {
 			return nil, err
 		}
@@ -264,7 +268,7 @@ func (q *Queries) InsertStudentIfMissing(ctx context.Context, arg InsertStudentI
 }
 
 const listActiveStudentsInSection = `-- name: ListActiveStudentsInSection :many
-SELECT niat_id, full_name, degree_code, section, level, hall_no, poc_id, coach_id, status, joined_on, dropped_on, created_at, updated_at FROM students
+SELECT niat_id, full_name, degree_code, section, level, hall_no, poc_id, coach_id, status, joined_on, dropped_on, created_at, updated_at, sheet_order FROM students
 WHERE degree_code = $1 AND section = $2 AND status = 'active'
 ORDER BY full_name
 `
@@ -297,6 +301,7 @@ func (q *Queries) ListActiveStudentsInSection(ctx context.Context, arg ListActiv
 			&i.DroppedOn,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SheetOrder,
 		); err != nil {
 			return nil, err
 		}
@@ -372,7 +377,7 @@ func (q *Queries) ListSections(ctx context.Context) ([]ListSectionsRow, error) {
 }
 
 const listStudentsForAdmin = `-- name: ListStudentsForAdmin :many
-SELECT s.niat_id, s.full_name, s.degree_code, s.section, s.level, s.hall_no, s.poc_id, s.coach_id, s.status, s.joined_on, s.dropped_on, s.created_at, s.updated_at, poc.name AS poc_name, coach.name AS coach_name
+SELECT s.niat_id, s.full_name, s.degree_code, s.section, s.level, s.hall_no, s.poc_id, s.coach_id, s.status, s.joined_on, s.dropped_on, s.created_at, s.updated_at, s.sheet_order, poc.name AS poc_name, coach.name AS coach_name
 FROM students s
 LEFT JOIN mentors poc ON poc.id = s.poc_id
 LEFT JOIN mentors coach ON coach.id = s.coach_id
@@ -406,6 +411,7 @@ type ListStudentsForAdminRow struct {
 	DroppedOn  pgtype.Date        `json:"dropped_on"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+	SheetOrder pgtype.Int4        `json:"sheet_order"`
 	PocName    pgtype.Text        `json:"poc_name"`
 	CoachName  pgtype.Text        `json:"coach_name"`
 }
@@ -440,8 +446,57 @@ func (q *Queries) ListStudentsForAdmin(ctx context.Context, arg ListStudentsForA
 			&i.DroppedOn,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SheetOrder,
 			&i.PocName,
 			&i.CoachName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listStudentsForExport = `-- name: ListStudentsForExport :many
+SELECT niat_id, full_name, degree_code, section, status, joined_on, dropped_on, sheet_order
+FROM students
+ORDER BY degree_code, sheet_order NULLS LAST, section, full_name
+`
+
+type ListStudentsForExportRow struct {
+	NiatID     string      `json:"niat_id"`
+	FullName   string      `json:"full_name"`
+	DegreeCode string      `json:"degree_code"`
+	Section    string      `json:"section"`
+	Status     string      `json:"status"`
+	JoinedOn   pgtype.Date `json:"joined_on"`
+	DroppedOn  pgtype.Date `json:"dropped_on"`
+	SheetOrder pgtype.Int4 `json:"sheet_order"`
+}
+
+// Every student, active or dropped, in each degree's sheet order; students
+// without a sheet position go last, by section and name.
+func (q *Queries) ListStudentsForExport(ctx context.Context) ([]ListStudentsForExportRow, error) {
+	rows, err := q.db.Query(ctx, listStudentsForExport)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListStudentsForExportRow
+	for rows.Next() {
+		var i ListStudentsForExportRow
+		if err := rows.Scan(
+			&i.NiatID,
+			&i.FullName,
+			&i.DegreeCode,
+			&i.Section,
+			&i.Status,
+			&i.JoinedOn,
+			&i.DroppedOn,
+			&i.SheetOrder,
 		); err != nil {
 			return nil, err
 		}
@@ -494,12 +549,32 @@ func (q *Queries) SearchActiveStudentsByName(ctx context.Context, arg SearchActi
 	return items, nil
 }
 
+const setStudentSheetOrders = `-- name: SetStudentSheetOrders :exec
+UPDATE students s
+SET sheet_order = u.sheet_order
+FROM (SELECT unnest($1::text[])   AS niat_id,
+             unnest($2::int[]) AS sheet_order) u
+WHERE s.niat_id = u.niat_id AND s.sheet_order IS DISTINCT FROM u.sheet_order
+`
+
+type SetStudentSheetOrdersParams struct {
+	NiatIds     []string `json:"niat_ids"`
+	SheetOrders []int32  `json:"sheet_orders"`
+}
+
+// Student import: remember each row's position in the file (any action but
+// error), so the export can follow the sheet's order. updated_at is left alone.
+func (q *Queries) SetStudentSheetOrders(ctx context.Context, arg SetStudentSheetOrdersParams) error {
+	_, err := q.db.Exec(ctx, setStudentSheetOrders, arg.NiatIds, arg.SheetOrders)
+	return err
+}
+
 const updateStudent = `-- name: UpdateStudent :one
 UPDATE students
 SET full_name = $2, degree_code = $3, section = $4, level = $5, hall_no = $6,
     poc_id = $7, coach_id = $8, status = $9, joined_on = $10, dropped_on = $11, updated_at = now()
 WHERE niat_id = $1
-RETURNING niat_id, full_name, degree_code, section, level, hall_no, poc_id, coach_id, status, joined_on, dropped_on, created_at, updated_at
+RETURNING niat_id, full_name, degree_code, section, level, hall_no, poc_id, coach_id, status, joined_on, dropped_on, created_at, updated_at, sheet_order
 `
 
 type UpdateStudentParams struct {
@@ -546,6 +621,7 @@ func (q *Queries) UpdateStudent(ctx context.Context, arg UpdateStudentParams) (S
 		&i.DroppedOn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SheetOrder,
 	)
 	return i, err
 }

@@ -28,6 +28,9 @@ type importSummary struct {
 	Unchanged int `json:"unchanged"`
 	Errors    int `json:"errors"`
 	Warnings  int `json:"warnings"`
+	// Reordered counts unchanged students whose row position (for the export
+	// order) would change, so a file with no other changes can still be saved.
+	Reordered int `json:"reordered"`
 }
 
 type importResponse struct {
@@ -150,6 +153,20 @@ func (s *Server) handleImportStudents(w http.ResponseWriter, r *http.Request) {
 				return fmt.Errorf("save students: %w", err)
 			}
 			resp.Saved = len(batch.NiatIds)
+		}
+		// Every valid row, unchanged ones too: the file's row order becomes
+		// the export order (see ListStudentsForExport).
+		var order db.SetStudentSheetOrdersParams
+		for _, row := range resp.Rows {
+			if row.Action != "error" {
+				order.NiatIds = append(order.NiatIds, row.NiatID)
+				order.SheetOrders = append(order.SheetOrders, int32(row.Row))
+			}
+		}
+		if len(order.NiatIds) > 0 {
+			if err := q.SetStudentSheetOrders(r.Context(), order); err != nil {
+				return fmt.Errorf("save sheet order: %w", err)
+			}
 		}
 		if resp.Attendance == nil {
 			return nil
@@ -287,6 +304,9 @@ func (s *Server) previewStudents(r *http.Request, fileName string, parsed []impo
 		}
 		if len(row.Warnings) > 0 {
 			resp.Summary.Warnings++
+		}
+		if st := existing[p.NiatID]; row.Action == "unchanged" && (!st.SheetOrder.Valid || st.SheetOrder.Int32 != int32(p.Row)) {
+			resp.Summary.Reordered++
 		}
 		resp.Rows[i] = row
 	}

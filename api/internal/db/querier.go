@@ -102,6 +102,9 @@ type Querier interface {
 	// q matches part of the name or the start of the NIAT ID; empty filters match all.
 	// hall: NULL matches all; '' matches students with no hall.
 	ListStudentsForAdmin(ctx context.Context, arg ListStudentsForAdminParams) ([]ListStudentsForAdminRow, error)
+	// Every student, active or dropped, in each degree's sheet order; students
+	// without a sheet position go last, by section and name.
+	ListStudentsForExport(ctx context.Context) ([]ListStudentsForExportRow, error)
 	ListTerms(ctx context.Context) ([]Term, error)
 	// Taken inside a transaction before changing any role or status, so two
 	// concurrent changes cannot both remove the last active Owner.
@@ -129,6 +132,9 @@ type Querier interface {
 	SetPasswordByEmail(ctx context.Context, arg SetPasswordByEmailParams) (Admin, error)
 	// Owner reset (must_change = true) or own change (false). Ends existing sessions.
 	SetPasswordByID(ctx context.Context, arg SetPasswordByIDParams) (Admin, error)
+	// Student import: remember each row's position in the file (any action but
+	// error), so the export can follow the sheet's order. updated_at is left alone.
+	SetStudentSheetOrders(ctx context.Context, arg SetStudentSheetOrdersParams) error
 	UpdateAdminAccess(ctx context.Context, arg UpdateAdminAccessParams) (Admin, error)
 	// Owner edit of name and email. A changed email ends that admin's sessions.
 	// A taken email fails on the unique constraint.
