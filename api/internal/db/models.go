@@ -114,6 +114,7 @@ type Student struct {
 	DroppedOn  pgtype.Date        `json:"dropped_on"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+	SheetOrder pgtype.Int4        `json:"sheet_order"`
 }
 
 type StudentPeriod struct {

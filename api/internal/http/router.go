@@ -107,6 +107,8 @@ func (s *Server) Routes() http.Handler {
 			r.Post("/imports/attendance", s.handleImportAttendance)
 			r.Post("/imports/calendar", s.handleImportCalendar)
 			r.Get("/imports/history", s.handleImportHistory)
+			r.Get("/exports/attendance", s.handleExportAttendance)
+			r.Get("/exports/attendance.xlsx", s.handleExportAttendanceXLSX)
 			r.Get("/terms", s.handleListTerms)
 			r.Post("/terms", s.handleCreateTerm)
 			r.Patch("/terms/{id}", s.handleUpdateTerm)

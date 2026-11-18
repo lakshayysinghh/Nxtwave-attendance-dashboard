@@ -61,7 +61,7 @@ export function ImportStudents() {
         ? ` Saved ${res.attendance.saved} mark(s) for ${res.attendance.summary.students_affected} student(s)${periodsSaved(res.attendance.summary.periods_to_save)}.`
         : "";
       setDone(
-        `Imported ${res.file_name}: ${res.summary.new} new, ${res.summary.updated} updated${res.summary.errors ? `, ${res.summary.errors} row(s) with errors skipped` : ""}.${marks}`,
+        `Imported ${res.file_name}: ${res.summary.new} new, ${res.summary.updated} updated${res.summary.reordered ? `, row order saved for ${res.summary.reordered} more` : ""}${res.summary.errors ? `, ${res.summary.errors} row(s) with errors skipped` : ""}.${marks}`,
       );
       reset();
       for (const key of markQueryKeys) qc.invalidateQueries({ queryKey: [key] });
@@ -73,6 +73,8 @@ export function ImportStudents() {
   const studentsToSave = s ? s.new + s.updated : 0;
   const marksToSave = att?.summary.records_to_update ?? 0;
   const periodsToSave = att?.summary.periods_to_save ?? 0;
+  // Unchanged students whose row position (used by Export) would change.
+  const orderOnly = s?.reordered ?? 0;
   const partial = !!att && att.unsupported.length > 0;
   const hasErrors = !!s && (s.errors > 0 || (!!att && attendanceHasErrors(att)));
   const error = check.error ?? save.error;
@@ -80,6 +82,7 @@ export function ImportStudents() {
     studentsToSave > 0 && `${studentsToSave} student${studentsToSave === 1 ? "" : "s"}`,
     marksToSave > 0 && `${marksToSave} mark${marksToSave === 1 ? "" : "s"}`,
     periodsToSave > 0 && `${periodsToSave} period${periodsToSave === 1 ? "" : "s"}`,
+    orderOnly > 0 && `row order for ${orderOnly} student${orderOnly === 1 ? "" : "s"}`,
   ]
     .filter(Boolean)
     .join(" and ");
@@ -140,6 +143,7 @@ export function ImportStudents() {
               <Count label="Unchanged" n={s.unchanged} cls={actionStyle.unchanged.cls} />
               <Count label="Errors" n={s.errors} cls={actionStyle.error.cls} />
               {s.warnings > 0 && <Count label="Warnings" n={s.warnings} cls="bg-amber-50 text-amber-800 ring-amber-200" />}
+              {orderOnly > 0 && <Count label="Row order" n={orderOnly} cls="bg-sky-50 text-sky-800 ring-sky-200" />}
             </div>
 
             <div className="overflow-x-auto rounded-md border border-border">
