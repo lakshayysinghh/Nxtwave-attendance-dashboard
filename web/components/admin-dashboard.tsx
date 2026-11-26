@@ -791,6 +791,13 @@ export function MarkAttendance() {
               >
                 {term ? `Mark ${markable.length} shown present` : "Mark all present"}
               </Button>
+              <Button
+                variant="outline"
+                disabled={!markable.length}
+                onClick={() => setEdits((e) => ({ ...e, ...Object.fromEntries(markable.map((r) => [r.niat_id, "A" as Mark])) }))}
+              >
+                {term ? `Mark ${markable.length} shown absent` : "Mark all absent"}
+              </Button>
               <Button variant="outline" disabled={!dirty} onClick={() => setEdits({})}>
                 Undo changes
               </Button>
