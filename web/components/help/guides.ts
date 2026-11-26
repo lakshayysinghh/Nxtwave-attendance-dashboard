@@ -255,6 +255,7 @@ export const guides = {
           rows: [
             ["**Present / Absent / Not marked**", "Per student. **Not marked** clears a saved mark."],
             ["**Mark all present**", "After a search it reads **Mark N shown present** and marks only the students shown"],
+            ["**Mark all absent**", "Same as **Mark all present**, but marks everyone Absent"],
             ["**Undo changes**", "Discards changes not saved yet"],
             ["**Search**", "Narrows the list by name or NIAT ID. Changes to hidden students are kept and saved."],
           ],
