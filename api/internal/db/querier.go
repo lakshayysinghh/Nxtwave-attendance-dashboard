@@ -99,7 +99,7 @@ type Querier interface {
 	// Every period of one student, cancelled ones included (history).
 	ListStudentPeriods(ctx context.Context, niatID string) ([]StudentPeriod, error)
 	ListStudentRemarks(ctx context.Context, niatID string) ([]ListStudentRemarksRow, error)
-	// q matches part of the name or the start of the NIAT ID; empty filters match all.
+	// q matches part of the name or any part of the NIAT ID (e.g. its last digits); empty filters match all.
 	// hall: NULL matches all; '' matches students with no hall.
 	ListStudentsForAdmin(ctx context.Context, arg ListStudentsForAdminParams) ([]ListStudentsForAdminRow, error)
 	// Every student, active or dropped, in each degree's sheet order; students

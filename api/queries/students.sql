@@ -21,7 +21,7 @@ LEFT JOIN mentors coach ON coach.id = s.coach_id
 WHERE s.niat_id = $1;
 
 -- name: ListStudentsForAdmin :many
--- q matches part of the name or the start of the NIAT ID; empty filters match all.
+-- q matches part of the name or any part of the NIAT ID (e.g. its last digits); empty filters match all.
 -- hall: NULL matches all; '' matches students with no hall.
 SELECT s.*, poc.name AS poc_name, coach.name AS coach_name
 FROM students s
@@ -29,7 +29,7 @@ LEFT JOIN mentors poc ON poc.id = s.poc_id
 LEFT JOIN mentors coach ON coach.id = s.coach_id
 WHERE (sqlc.arg(pattern)::text = ''
        OR lower(s.full_name) LIKE '%' || lower(sqlc.arg(pattern)::text) || '%' ESCAPE '\'
-       OR s.niat_id LIKE upper(sqlc.arg(pattern)::text) || '%' ESCAPE '\')
+       OR s.niat_id LIKE '%' || upper(sqlc.arg(pattern)::text) || '%' ESCAPE '\')
   AND (sqlc.arg(degree)::text = '' OR s.degree_code = sqlc.arg(degree)::text)
   AND (sqlc.arg(section)::text = '' OR s.section = sqlc.arg(section)::text)
   AND (sqlc.narg(hall)::text IS NULL OR coalesce(s.hall_no, '') = sqlc.narg(hall)::text)

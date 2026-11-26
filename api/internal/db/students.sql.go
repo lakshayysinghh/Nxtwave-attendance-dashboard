@@ -383,7 +383,7 @@ LEFT JOIN mentors poc ON poc.id = s.poc_id
 LEFT JOIN mentors coach ON coach.id = s.coach_id
 WHERE ($1::text = ''
        OR lower(s.full_name) LIKE '%' || lower($1::text) || '%' ESCAPE '\'
-       OR s.niat_id LIKE upper($1::text) || '%' ESCAPE '\')
+       OR s.niat_id LIKE '%' || upper($1::text) || '%' ESCAPE '\')
   AND ($2::text = '' OR s.degree_code = $2::text)
   AND ($3::text = '' OR s.section = $3::text)
   AND ($4::text IS NULL OR coalesce(s.hall_no, '') = $4::text)
@@ -416,7 +416,7 @@ type ListStudentsForAdminRow struct {
 	CoachName  pgtype.Text        `json:"coach_name"`
 }
 
-// q matches part of the name or the start of the NIAT ID; empty filters match all.
+// q matches part of the name or any part of the NIAT ID (e.g. its last digits); empty filters match all.
 // hall: NULL matches all; ” matches students with no hall.
 func (q *Queries) ListStudentsForAdmin(ctx context.Context, arg ListStudentsForAdminParams) ([]ListStudentsForAdminRow, error) {
 	rows, err := q.db.Query(ctx, listStudentsForAdmin,
