@@ -64,6 +64,8 @@ func (s *Server) Routes() http.Handler {
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/health", s.handleHealth)
+		r.Get("/ping", handlePing)
+		r.Head("/ping", handlePing)
 
 		r.Route("/auth", func(r chi.Router) {
 			// Google sign-in is optional and off unless GOOGLE_CLIENT_ID/SECRET are set.
@@ -150,6 +152,9 @@ func (s *Server) requestLogger(next http.Handler) http.Handler {
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 		start := time.Now()
 		next.ServeHTTP(ww, r)
+		if r.URL.Path == "/api/ping" && ww.Status() == http.StatusOK {
+			return // monitors call it every few minutes; keep the logs readable
+		}
 		s.log.Info("request",
 			"method", r.Method,
 			"path", r.URL.Path,
