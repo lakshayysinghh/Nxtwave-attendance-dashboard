@@ -27,6 +27,13 @@ export function useMe() {
       }
     },
     retry: false,
+    // One shared cache entry (React Query also merges concurrent fetches).
+    // Sign-in, sign-out and password change set it directly, and any API call
+    // that comes back "session ended" clears it (see Providers), so it does
+    // not need to be re-checked on every tab focus. The API still checks the
+    // session on every request.
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
   });
 }
 

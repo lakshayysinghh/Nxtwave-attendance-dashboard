@@ -116,14 +116,15 @@ func serve(log *slog.Logger, cfg config.Config) error {
 	srv := &http.Server{
 		Addr: ":" + cfg.Port,
 		Handler: apihttp.NewServer(apihttp.Deps{
-			Log:           log,
-			Store:         queries,
-			Pool:          pool,
-			Google:        google,
-			Signer:        auth.NewSigner(cfg.SessionSecret),
-			AppBaseURL:    cfg.AppBaseURL,
-			SecureCookies: cfg.SecureCookies(),
-			Location:      ist,
+			Log:              log,
+			Store:            queries,
+			Pool:             pool,
+			Google:           google,
+			Signer:           auth.NewSigner(cfg.SessionSecret),
+			AppBaseURL:       cfg.AppBaseURL,
+			SecureCookies:    cfg.SecureCookies(),
+			Location:         ist,
+			TrustedProxyHops: cfg.TrustedProxyHops,
 		}).Routes(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
