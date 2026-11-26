@@ -39,7 +39,7 @@ export function PageShell({ active, children }: { active?: "student" | "admin"; 
       <SiteHeader active={active} />
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-4 py-6 sm:py-8">{children}</main>
       <footer className="border-t border-border py-4 text-center text-xs text-muted-foreground">
-        DSA Attendance · B.Tech demo project
+        DSA Attendance
       </footer>
     </>
   );
