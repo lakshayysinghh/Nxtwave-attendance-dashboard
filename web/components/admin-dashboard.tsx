@@ -665,6 +665,14 @@ const choices: { value: Mark; label: string; on: string }[] = [
   { value: "A", label: "Absent", on: "bg-red-600 text-white" },
 ];
 
+type MarkView = "all" | "P" | "A" | "none";
+const markViews: { value: MarkView; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "P", label: "Present" },
+  { value: "A", label: "Absent" },
+  { value: "none", label: "Not marked" },
+];
+
 /**
  * Marking for one hall at a time: one mark per student for the day. The hall
  * is kept in the URL (?hall=).
@@ -682,12 +690,17 @@ export function MarkAttendance() {
   const [edits, setEdits] = useState<Record<string, Mark>>({});
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [search, setSearch] = useState("");
+  const [view, setView] = useState<MarkView>("all");
 
   const day = sheet.data?.date ?? "";
   const rows = sheet.data?.students ?? [];
   const term = search.trim().toLowerCase();
-  // Search only narrows the list; edits to students not shown are kept and saved.
-  const shown = term ? rows.filter((r) => r.name.toLowerCase().includes(term) || r.niat_id.toLowerCase().includes(term)) : rows;
+  // Search and the view tabs only narrow the list; edits to students not shown are kept and saved.
+  const found = term ? rows.filter((r) => r.name.toLowerCase().includes(term) || r.niat_id.toLowerCase().includes(term)) : rows;
+  // Tabs go by the saved mark, so a row stays put while you change it until Save.
+  const inView = (r: (typeof rows)[number], v: MarkView) => v === "all" || (r.counted && (r.status ?? "none") === v);
+  const shown = found.filter((r) => inView(r, view));
+  const narrowed = !!term || view !== "all";
   const markable = shown.filter((r) => r.counted);
   const dirty = Object.keys(edits).length > 0;
 
@@ -786,14 +799,14 @@ export function MarkAttendance() {
                 disabled={!markable.length}
                 onClick={() => setEdits((e) => ({ ...e, ...Object.fromEntries(markable.map((r) => [r.niat_id, "P" as Mark])) }))}
               >
-                {term ? `Mark ${markable.length} shown present` : "Mark all present"}
+                {narrowed ? `Mark ${markable.length} shown present` : "Mark all present"}
               </Button>
               <Button
                 variant="outline"
                 disabled={!markable.length}
                 onClick={() => setEdits((e) => ({ ...e, ...Object.fromEntries(markable.map((r) => [r.niat_id, "A" as Mark])) }))}
               >
-                {term ? `Mark ${markable.length} shown absent` : "Mark all absent"}
+                {narrowed ? `Mark ${markable.length} shown absent` : "Mark all absent"}
               </Button>
               <Button
                 variant="outline"
@@ -817,12 +830,34 @@ export function MarkAttendance() {
               placeholder={`Search ${hallLabel(hall)} by name or NIAT ID`}
               aria-label="Search students in this hall"
             />
+            <div className="flex flex-wrap gap-x-1 border-b border-border" role="tablist" aria-label="Show students">
+              {markViews.map((v) => {
+                const on = view === v.value;
+                const n = found.filter((r) => inView(r, v.value)).length;
+                return (
+                  <button
+                    key={v.value}
+                    type="button"
+                    role="tab"
+                    aria-selected={on}
+                    onClick={() => setView(v.value)}
+                    className={`-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium ${
+                      on ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {v.label}
+                    <span className={`rounded-full px-1.5 text-xs tabular-nums ${on ? "bg-primary/10" : "bg-muted"}`}>{n}</span>
+                  </button>
+                );
+              })}
+            </div>
             <p className="text-xs text-muted-foreground">
-              {hallLabel(hall)}: {term ? `${shown.length} of ${rows.length}` : rows.length} student{rows.length === 1 ? "" : "s"}
-              {term && " match the search"}. Names open in a new tab, so unsaved marks stay here.
+              {hallLabel(hall)}: {narrowed ? `${shown.length} of ${rows.length}` : rows.length} student{rows.length === 1 ? "" : "s"}
+              {narrowed && " shown"}. Tabs go by the saved mark, so a student stays in view while you change them until you save. Names open in a new
+              tab, so unsaved marks stay here.
             </p>
 
-            {rows.length > 0 && markable.length === 0 && (
+            {rows.length > 0 && !rows.some((r) => r.counted) && (
               <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                 {rows[0].reason} Attendance cannot be marked for this date.
               </p>
@@ -873,7 +908,13 @@ export function MarkAttendance() {
                 );
               })}
             </ul>
-            {term && shown.length === 0 && <p className="text-sm text-muted-foreground">No student in {hallLabel(hall)} matches “{search.trim()}”.</p>}
+            {narrowed && shown.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                No student in {hallLabel(hall)}
+                {view !== "all" && <> is saved as {markViews.find((v) => v.value === view)?.label}</>}
+                {term && <> matching “{search.trim()}”</>}.
+              </p>
+            )}
           </>
         )}
       </CardContent>

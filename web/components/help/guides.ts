@@ -257,6 +257,7 @@ export const guides = {
             ["**Mark rest absent (n)**", "Marks every student still **Not marked** as Absent; students already marked stay as they are. After a search it covers only the students shown."],
             ["**Mark all present**", "After a search it reads **Mark N shown present** and marks only the students shown"],
             ["**Mark all absent**", "Same as **Mark all present**, but marks everyone Absent"],
+            ["**All / Present / Absent / Not marked**", "Tabs that show only students saved with that mark, e.g. open **Absent** to fix a late arrival. The buttons above then act only on the students shown."],
             ["**Undo changes**", "Discards changes not saved yet"],
             ["**Search**", "Narrows the list by name or NIAT ID. Changes to hidden students are kept and saved."],
           ],
