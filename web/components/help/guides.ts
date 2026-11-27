@@ -244,7 +244,7 @@ export const guides = {
         steps: [
           "Pick a **hall**. The number on each button is its active students.",
           "Check the **Date**. It starts at today; future dates cannot be picked.",
-          "Click **Mark all present**, then switch the absent students to **Absent**.",
+          "Everyone starts **Not marked**. Switch the students who came to **Present**, then click **Mark rest absent**.",
           "Click **Save (n)**. Changed rows stay highlighted until saved.",
         ],
       },
@@ -253,7 +253,8 @@ export const guides = {
         table: {
           head: ["Control", "What it does"],
           rows: [
-            ["**Present / Absent / Not marked**", "Per student. **Not marked** clears a saved mark."],
+            ["**Present / Absent**", "Per student. Students with no mark yet show **Not marked**."],
+            ["**Mark rest absent (n)**", "Marks every student still **Not marked** as Absent; students already marked stay as they are. After a search it covers only the students shown."],
             ["**Mark all present**", "After a search it reads **Mark N shown present** and marks only the students shown"],
             ["**Mark all absent**", "Same as **Mark all present**, but marks everyone Absent"],
             ["**Undo changes**", "Discards changes not saved yet"],

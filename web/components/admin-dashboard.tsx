@@ -10,7 +10,7 @@ import { PageHeading, useCurrentAdmin } from "@/components/admin-shell";
 import { HealthStatus } from "@/components/health-status";
 import { markQueryKeys } from "@/components/import-attendance";
 import { StudentFormCard } from "@/components/student-form";
-import { Legend, PctBadge, TermRange, bandInfo, fmtDate, fmtDay } from "@/components/attendance-ui";
+import { Legend, MarkChip, PctBadge, TermRange, bandInfo, fmtDate, fmtDay } from "@/components/attendance-ui";
 import { RangePicker } from "@/components/date-range";
 import { StudentSheet, byName } from "@/components/student-sheet";
 import { StatCard } from "@/components/ui/stat-card";
@@ -663,7 +663,6 @@ function StudentRows({ rows, compact, selection }: { rows: AdminStudent[]; compa
 const choices: { value: Mark; label: string; on: string }[] = [
   { value: "P", label: "Present", on: "bg-green-600 text-white" },
   { value: "A", label: "Absent", on: "bg-red-600 text-white" },
-  { value: null, label: "Not marked", on: "bg-slate-600 text-white" },
 ];
 
 /**
@@ -709,19 +708,17 @@ export function MarkAttendance() {
   };
 
   const current = (id: string, saved: Mark): Mark => (id in edits ? edits[id] : saved);
+  // Marks Save will write: changes that differ from what is saved.
+  const pending: MarkInput[] = rows
+    .filter((r) => r.counted && current(r.niat_id, r.status) !== r.status)
+    .map((r) => ({ niat_id: r.niat_id, date: day, status: current(r.niat_id, r.status) }));
+  // Shown students still Not marked, for "Mark rest absent".
+  const rest = markable.filter((r) => current(r.niat_id, r.status) === null);
 
   const save = useMutation({
-    mutationFn: () => {
-      const marks: MarkInput[] = [];
-      for (const r of rows) {
-        if (!(r.niat_id in edits)) continue;
-        const v = edits[r.niat_id];
-        if (r.status !== v) marks.push({ niat_id: r.niat_id, date: day, status: v });
-      }
-      return api.saveMarks(marks);
-    },
+    mutationFn: () => api.saveMarks(pending),
     onSuccess: () => {
-      setMsg({ ok: true, text: `Saved attendance for ${Object.keys(edits).length} student(s) in ${hallLabel(hall ?? "")} on ${fmtDay(day)}.` });
+      setMsg({ ok: true, text: `Saved attendance for ${pending.length} student(s) in ${hallLabel(hall ?? "")} on ${fmtDay(day)}.` });
       setEdits({});
       qc.invalidateQueries({ queryKey: ["sheet"] });
       qc.invalidateQueries({ queryKey: ["students"] });
@@ -798,11 +795,18 @@ export function MarkAttendance() {
               >
                 {term ? `Mark ${markable.length} shown absent` : "Mark all absent"}
               </Button>
+              <Button
+                variant="outline"
+                disabled={!rest.length}
+                onClick={() => setEdits((e) => ({ ...e, ...Object.fromEntries(rest.map((r) => [r.niat_id, "A" as Mark])) }))}
+              >
+                {rest.length ? `Mark rest absent (${rest.length})` : "Mark rest absent"}
+              </Button>
               <Button variant="outline" disabled={!dirty} onClick={() => setEdits({})}>
                 Undo changes
               </Button>
-              <Button className="sm:ml-auto" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
-                {save.isPending ? "Saving…" : dirty ? `Save (${Object.keys(edits).length})` : "Save"}
+              <Button className="sm:ml-auto" disabled={!pending.length || save.isPending} onClick={() => save.mutate()}>
+                {save.isPending ? "Saving…" : pending.length ? `Save (${pending.length})` : "Save"}
               </Button>
             </div>
 
@@ -844,6 +848,7 @@ export function MarkAttendance() {
                         {r.niat_id} · {r.degree} · {r.section}
                       </div>
                     </div>
+                    {r.counted && cur === null && <MarkChip mark={null} />}
                     {r.counted ? (
                       <div className="inline-flex self-start overflow-hidden rounded-md ring-1 ring-input sm:self-auto" role="group" aria-label={`Attendance for ${r.name}`}>
                         {choices.map((c) => {
