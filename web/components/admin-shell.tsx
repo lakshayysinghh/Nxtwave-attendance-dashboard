@@ -115,7 +115,7 @@ function TopBar({ me, onMenu, onChangePassword }: { me: Me; onMenu: () => void; 
         </button>
         <Link href="/admin" className="flex items-center gap-2">
           <Logo onDark />
-          <span className="hidden font-semibold tracking-tight sm:inline">NxtWave Attendance</span>
+          <span className="hidden font-semibold tracking-tight sm:inline">NxtWave DSA Attendance</span>
         </Link>
       </div>
       <div className="flex items-center gap-1.5 text-sm sm:gap-2">

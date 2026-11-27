@@ -22,7 +22,7 @@ export function SiteHeader({ active }: { active?: "student" | "admin" }) {
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
         <Link href="/" className="flex items-center gap-2">
           <Logo onDark />
-          <span className="font-semibold tracking-tight">NxtWave Attendance</span>
+          <span className="font-semibold tracking-tight">NxtWave DSA Attendance</span>
         </Link>
         <nav className="flex items-center gap-1">
           <ThemeToggle />
