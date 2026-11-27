@@ -22,6 +22,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useContext, useState } from "react";
 
+import { DsaOnlyNotice } from "@/components/attendance-ui";
 import { ChangePasswordCard, useAdminSession } from "@/components/auth";
 import { Sheet, backdropTone } from "@/components/ui/overlay";
 import { PageHelp } from "@/components/help/page-help";
@@ -81,6 +82,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           </aside>
           <main className="min-w-0 flex-1 overflow-y-auto print:overflow-visible">
             <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6">
+              <DsaOnlyNotice />
               {admin.must_change_password ? <ChangePasswordCard forced /> : children}
             </div>
           </main>

@@ -1,4 +1,5 @@
 // Shared presentational pieces for the student and admin pages.
+import { Info } from "lucide-react";
 import Link from "next/link";
 
 import { Logo } from "@/components/logo";
@@ -33,11 +34,26 @@ export function SiteHeader({ active }: { active?: "student" | "admin" }) {
   );
 }
 
+/** States on every student and admin page that this attendance covers DSA classes only. */
+export function DsaOnlyNotice() {
+  return (
+    <p className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900 print:hidden dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-100">
+      <Info aria-hidden className="size-4 shrink-0" />
+      <span>
+        This attendance is for <strong>DSA classes only</strong>. It does not include other subjects.
+      </span>
+    </p>
+  );
+}
+
 export function PageShell({ active, children }: { active?: "student" | "admin"; children: React.ReactNode }) {
   return (
     <>
       <SiteHeader active={active} />
-      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-4 py-6 sm:py-8">{children}</main>
+      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-4 py-6 sm:py-8">
+        <DsaOnlyNotice />
+        {children}
+      </main>
       <footer className="border-t border-border py-4 text-center text-xs text-muted-foreground">
         DSA Attendance
       </footer>
