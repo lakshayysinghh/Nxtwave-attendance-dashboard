@@ -139,8 +139,8 @@ export type SheetRow = {
   counted: boolean;
   reason: string;
   status: Mark;
-  /** Who last saved this mark and when (ISO time); absent when there is no mark. Name and email are empty for seeded marks or a deleted admin. */
-  saved_by?: { name: string; email: string; at: string };
+  /** Owner only: who last saved this mark and when (ISO time); absent when there is no mark. Name is empty for seeded marks or a deleted admin. */
+  saved_by?: { name: string; at: string };
 };
 
 export type MarkInput = { niat_id: string; date: string; status: Mark };

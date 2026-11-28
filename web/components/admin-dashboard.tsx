@@ -665,9 +665,8 @@ const choices: { value: Mark; label: string; on: string }[] = [
   { value: "A", label: "Absent", on: "bg-red-600 text-white" },
 ];
 
-/** "Name (email)", or a note when the mark has no admin (seeded, or the admin was deleted). */
-const saverLabel = (s: { name: string; email: string }) =>
-  s.email ? (s.name && s.name !== s.email ? `${s.name} (${s.email})` : s.email) : "an unknown admin";
+/** The admin's name, or a note when the mark has no admin (seeded, or the admin was deleted). */
+const saverLabel = (s: { name: string }) => s.name || "an unknown admin";
 const timeFmt = new Intl.DateTimeFormat("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" });
 /** Time of day in IST, e.g. "10:42 am". */
 const fmtTime = (iso: string) => timeFmt.format(new Date(iso));
@@ -713,7 +712,7 @@ export function MarkAttendance() {
   const savers = Object.values(
     rows.reduce<Record<string, { key: string; label: string; count: number; last: string }>>((acc, r) => {
       if (!r.saved_by) return acc;
-      const key = r.saved_by.email || "(none)";
+      const key = r.saved_by.name || "(none)";
       const s = (acc[key] ??= { key, label: saverLabel(r.saved_by), count: 0, last: r.saved_by.at });
       s.count++;
       if (r.saved_by.at > s.last) s.last = r.saved_by.at;
@@ -911,29 +910,31 @@ export function MarkAttendance() {
                       <div className="flex flex-wrap items-center gap-1 font-mono text-xs text-muted-foreground">
                         {r.niat_id} · {r.degree} · {r.section}
                       </div>
-                      {r.saved_by && (
-                        <div className="text-xs text-muted-foreground">
-                          Saved by {saverLabel(r.saved_by)} at {fmtTime(r.saved_by.at)}
-                        </div>
-                      )}
                     </div>
                     {r.counted && cur === null && <MarkChip mark={null} />}
                     {r.counted ? (
-                      <div className="inline-flex self-start overflow-hidden rounded-md ring-1 ring-input sm:self-auto" role="group" aria-label={`Attendance for ${r.name}`}>
-                        {choices.map((c) => {
-                          const on = cur === c.value;
-                          return (
-                            <button
-                              key={c.label}
-                              type="button"
-                              aria-pressed={on}
-                              onClick={() => setEdits((e) => ({ ...e, [r.niat_id]: c.value }))}
-                              className={`border-l border-input px-3 py-1.5 text-xs font-medium first:border-l-0 ${on ? c.on : "bg-white text-slate-700 hover:bg-muted"}`}
-                            >
-                              {c.label}
-                            </button>
-                          );
-                        })}
+                      <div className="flex flex-col items-start gap-1 sm:items-end">
+                        <div className="inline-flex overflow-hidden rounded-md ring-1 ring-input" role="group" aria-label={`Attendance for ${r.name}`}>
+                          {choices.map((c) => {
+                            const on = cur === c.value;
+                            return (
+                              <button
+                                key={c.label}
+                                type="button"
+                                aria-pressed={on}
+                                onClick={() => setEdits((e) => ({ ...e, [r.niat_id]: c.value }))}
+                                className={`border-l border-input px-3 py-1.5 text-xs font-medium first:border-l-0 ${on ? c.on : "bg-white text-slate-700 hover:bg-muted"}`}
+                              >
+                                {c.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {r.saved_by && (
+                          <span className="text-xs text-muted-foreground">
+                            Saved by {saverLabel(r.saved_by)}, {fmtTime(r.saved_by.at)}
+                          </span>
+                        )}
                       </div>
                     ) : (
                       <span className="text-xs text-muted-foreground italic">{r.reason}</span>
