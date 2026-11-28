@@ -123,6 +123,53 @@ func (q *Queries) InsertMarksKeepExisting(ctx context.Context, arg InsertMarksKe
 	return result.RowsAffected(), nil
 }
 
+const listMarkSavers = `-- name: ListMarkSavers :many
+SELECT a.niat_id, a.updated_at,
+       coalesce(ad.name, '')::text AS admin_name, coalesce(ad.email, '')::text AS admin_email
+FROM attendance a
+LEFT JOIN admins ad ON ad.id = a.updated_by
+WHERE a.niat_id = ANY($1::text[]) AND a.date = $2::date
+`
+
+type ListMarkSaversParams struct {
+	NiatIds []string    `json:"niat_ids"`
+	OnDate  pgtype.Date `json:"on_date"`
+}
+
+type ListMarkSaversRow struct {
+	NiatID     string             `json:"niat_id"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+	AdminName  string             `json:"admin_name"`
+	AdminEmail string             `json:"admin_email"`
+}
+
+// Who last saved each student's mark on one date, and when. Admin fields are
+// empty for seeded marks or when that admin was deleted.
+func (q *Queries) ListMarkSavers(ctx context.Context, arg ListMarkSaversParams) ([]ListMarkSaversRow, error) {
+	rows, err := q.db.Query(ctx, listMarkSavers, arg.NiatIds, arg.OnDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMarkSaversRow
+	for rows.Next() {
+		var i ListMarkSaversRow
+		if err := rows.Scan(
+			&i.NiatID,
+			&i.UpdatedAt,
+			&i.AdminName,
+			&i.AdminEmail,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMarks = `-- name: ListMarks :many
 SELECT niat_id, date, status, coalesce(category, '')::text AS category FROM attendance
 WHERE niat_id = ANY($1::text[])

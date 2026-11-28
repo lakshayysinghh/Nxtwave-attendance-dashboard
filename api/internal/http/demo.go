@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -167,6 +168,15 @@ type sheetRow struct {
 	Counted bool    `json:"counted"`
 	Reason  string  `json:"reason"` // why the day cannot be marked, when !counted
 	Status  *string `json:"status"` // "P", "A" or null
+	// Who last saved this mark and when; omitted when there is no mark.
+	// Name and email are empty for seeded marks or a deleted admin.
+	SavedBy *markSaver `json:"saved_by,omitempty"`
+}
+
+type markSaver struct {
+	Name  string    `json:"name"`
+	Email string    `json:"email"`
+	At    time.Time `json:"at"`
 }
 
 // GET /api/admin/attendance/sheet?date=YYYY-MM-DD (default today)&hall=:
@@ -205,6 +215,15 @@ func (s *Server) handleAdminSheet(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "load marks", err)
 		return
 	}
+	savers, err := s.store.ListMarkSavers(r.Context(), db.ListMarkSaversParams{NiatIds: ids, OnDate: pgDate(date)})
+	if err != nil {
+		s.internalError(w, "list mark savers", err)
+		return
+	}
+	savedBy := make(map[string]*markSaver, len(savers))
+	for _, sv := range savers {
+		savedBy[sv.NiatID] = &markSaver{Name: sv.AdminName, Email: sv.AdminEmail, At: sv.UpdatedAt.Time}
+	}
 	rows := []sheetRow{}
 	for _, st := range students {
 		if st.Status != "active" {
@@ -214,6 +233,9 @@ func (s *Server) handleAdminSheet(w http.ResponseWriter, r *http.Request) {
 		row := sheetRow{
 			NiatID: st.NiatID, Name: st.FullName, Degree: st.DegreeCode, Section: st.Section, HallNo: optText(st.HallNo),
 			Counted: day.Counted, Status: markJSON(marks[st.NiatID][stats.DateKey(date)]),
+		}
+		if row.Status != nil {
+			row.SavedBy = savedBy[st.NiatID]
 		}
 		if !day.Counted {
 			row.Reason = notCountedReason(day)

@@ -665,6 +665,13 @@ const choices: { value: Mark; label: string; on: string }[] = [
   { value: "A", label: "Absent", on: "bg-red-600 text-white" },
 ];
 
+/** "Name (email)", or a note when the mark has no admin (seeded, or the admin was deleted). */
+const saverLabel = (s: { name: string; email: string }) =>
+  s.email ? (s.name && s.name !== s.email ? `${s.name} (${s.email})` : s.email) : "an unknown admin";
+const timeFmt = new Intl.DateTimeFormat("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" });
+/** Time of day in IST, e.g. "10:42 am". */
+const fmtTime = (iso: string) => timeFmt.format(new Date(iso));
+
 type MarkView = "all" | "P" | "A" | "none";
 const markViews: { value: MarkView; label: string }[] = [
   { value: "all", label: "All" },
@@ -702,6 +709,17 @@ export function MarkAttendance() {
   const shown = found.filter((r) => inView(r, view));
   const narrowed = !!term || view !== "all";
   const markable = shown.filter((r) => r.counted);
+  // Everyone who saved a mark in this hall on this date, latest first.
+  const savers = Object.values(
+    rows.reduce<Record<string, { key: string; label: string; count: number; last: string }>>((acc, r) => {
+      if (!r.saved_by) return acc;
+      const key = r.saved_by.email || "(none)";
+      const s = (acc[key] ??= { key, label: saverLabel(r.saved_by), count: 0, last: r.saved_by.at });
+      s.count++;
+      if (r.saved_by.at > s.last) s.last = r.saved_by.at;
+      return acc;
+    }, {}),
+  ).sort((a, b) => b.last.localeCompare(a.last));
   const dirty = Object.keys(edits).length > 0;
 
   useEffect(() => {
@@ -868,6 +886,17 @@ export function MarkAttendance() {
               </p>
             )}
             <Legend />
+            {savers.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">Saved by</span> (for {fmtDay(day)}, all of {hallLabel(hall)}):{" "}
+                {savers.map((s, i) => (
+                  <span key={s.key}>
+                    {i > 0 && " · "}
+                    {s.label} – {s.count} mark{s.count === 1 ? "" : "s"}, last at {fmtTime(s.last)}
+                  </span>
+                ))}
+              </p>
+            )}
 
             <ul className="divide-y divide-border rounded-md border border-border">
               {shown.map((r) => {
@@ -882,6 +911,11 @@ export function MarkAttendance() {
                       <div className="flex flex-wrap items-center gap-1 font-mono text-xs text-muted-foreground">
                         {r.niat_id} · {r.degree} · {r.section}
                       </div>
+                      {r.saved_by && (
+                        <div className="text-xs text-muted-foreground">
+                          Saved by {saverLabel(r.saved_by)} at {fmtTime(r.saved_by.at)}
+                        </div>
+                      )}
                     </div>
                     {r.counted && cur === null && <MarkChip mark={null} />}
                     {r.counted ? (

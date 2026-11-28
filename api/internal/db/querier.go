@@ -89,6 +89,9 @@ type Querier interface {
 	// Saved uploads, newest first, with how many calendar entries still point at
 	// each one (a later upload or edit moves an entry to its own batch).
 	ListImportBatches(ctx context.Context) ([]ListImportBatchesRow, error)
+	// Who last saved each student's mark on one date, and when. Admin fields are
+	// empty for seeded marks or when that admin was deleted.
+	ListMarkSavers(ctx context.Context, arg ListMarkSaversParams) ([]ListMarkSaversRow, error)
 	// Which degrees already have attendance on each date in the range.
 	ListMarkedDatesByDegree(ctx context.Context, arg ListMarkedDatesByDegreeParams) ([]ListMarkedDatesByDegreeRow, error)
 	ListMarks(ctx context.Context, arg ListMarksParams) ([]ListMarksRow, error)

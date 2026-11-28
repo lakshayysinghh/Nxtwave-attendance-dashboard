@@ -48,3 +48,12 @@ WHERE a.niat_id = d.niat_id AND a.date = d.date;
 
 -- name: DeleteDemoMarks :execrows
 DELETE FROM attendance WHERE niat_id LIKE 'N99%';
+
+-- name: ListMarkSavers :many
+-- Who last saved each student's mark on one date, and when. Admin fields are
+-- empty for seeded marks or when that admin was deleted.
+SELECT a.niat_id, a.updated_at,
+       coalesce(ad.name, '')::text AS admin_name, coalesce(ad.email, '')::text AS admin_email
+FROM attendance a
+LEFT JOIN admins ad ON ad.id = a.updated_by
+WHERE a.niat_id = ANY(sqlc.arg(niat_ids)::text[]) AND a.date = sqlc.arg(on_date)::date;
